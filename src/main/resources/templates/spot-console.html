@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:http="http://www.w3.org/1999/xhtml" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <title>핀 & 로케이션 콘솔</title>
+
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap"/>
+
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Roboto", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #f5f5f7;
+      color: #222;
+    }
+
+    header {
+      height: 56px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #1f2933;
+      color: #f9fafb;
+    }
+
+    header .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    header .logo span {
+      font-size: 18px;
+    }
+
+    header .nav {
+      display: flex;
+      gap: 12px;
+      font-size: 14px;
+    }
+
+    .nav-link {
+      color: #e5e7eb;
+      text-decoration: none;
+      opacity: 0.7;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+
+    .nav-link:hover {
+      opacity: 1;
+      background: rgba(148, 163, 184, 0.2);
+    }
+
+    .nav-link--active {
+      opacity: 1;
+      background: #0f172a;
+    }
+
+    main {
+      display: flex;
+      height: calc(100vh - 56px - 48px);
+    }
+
+    .map-pane {
+      flex: 2;
+      position: relative;
+      padding: 12px;
+    }
+
+    #spot-map {
+      width: 100%;
+      height: 100%;
+      border-radius: 16px;
+      background-color: #ddd;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.15);
+    }
+
+    .console-pane {
+      flex: 1;
+      padding: 12px 12px 12px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .panel {
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 12px 14px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .panel h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .panel small {
+      opacity: 0.7;
+      font-size: 12px;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .field label {
+      font-size: 12px;
+      opacity: 0.8;
+    }
+
+    .field input {
+      height: 30px;
+      padding: 4px 8px;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      font-size: 13px;
+    }
+
+    .field input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.3);
+    }
+
+    .button-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    button {
+      border-radius: 999px;
+      border: none;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      color: #f9fafb;
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: #374151;
+      border: 1px solid #d1d5db;
+    }
+
+    .btn-danger {
+      background: #dc2626;
+      color: #f9fafb;
+    }
+
+    .table-wrapper {
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    thead {
+      position: sticky;
+      top: 0;
+      background: #f3f4f6;
+    }
+
+    th, td {
+      padding: 4px 6px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+    }
+
+    tr:hover {
+      background: #f9fafb;
+    }
+
+    footer {
+      height: 48px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #6b7280;
+      background: #f9fafb;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    /* 검색 패널 */
+    .search-results {
+      max-height: 150px;
+      overflow-y: auto;
+      margin-top: 4px;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+      background: #f9fafb;
+      font-size: 12px;
+    }
+
+    .search-result-item {
+      padding: 6px 8px;
+      cursor: pointer;
+    }
+
+    .search-result-item:hover {
+      background: #e5e7eb;
+    }
+
+    .search-result-title {
+      font-weight: 500;
+    }
+
+    .search-result-addr {
+      color: #6b7280;
+      font-size: 11px;
+      margin-top: 2px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span>My Location</span>
+    <span style="font-size: 12px; opacity: .7;">Pin Console v1.1</span>
+  </div>
+  <div class="nav">
+    <a th:href="@{/console/map}" class="nav-link">지도 콘솔</a>
+    <a th:href="@{/console/map/spots}" class="nav-link nav-link--active">핀 콘솔</a>
+  </div>
+</header>
+
+<main>
+  <section class="map-pane">
+    <div id="spot-map"></div>
+  </section>
+
+  <aside class="console-pane">
+
+    <!-- 1) 새 핀 등록 패널 -->
+    <div class="panel">
+      <h2>새 핀 등록</h2>
+      <small>지도 클릭 또는 현재 위치로 좌표를 채운 뒤 반경을 설정해 저장합니다.</small>
+
+      <form id="spot-form">
+        <div class="field-group">
+          <div class="field">
+            <label for="spot-name">이름</label>
+            <input id="spot-name" name="name" type="text" placeholder="예: 집, 학교, 회사">
+          </div>
+
+          <div class="field">
+            <label for="spot-lat">위도 (lat)</label>
+            <input id="spot-lat" name="lat" type="number" step="0.000001">
+          </div>
+
+          <div class="field">
+            <label for="spot-lon">경도 (lon)</label>
+            <input id="spot-lon" name="lon" type="number" step="0.000001">
+          </div>
+
+          <div class="field">
+            <label for="spot-radius">반경 (m)</label>
+            <input id="spot-radius" name="locationWidth" type="number" step="10" value="500">
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="btn-use-current" type="button" class="btn-outline">현재 위치 사용</button>
+          <button id="btn-save-spot" type="button" class="btn-primary">핀 저장</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 2) 지도 검색 패널 (폼과 분리) -->
+    <div class="panel">
+      <h2>지도 검색</h2>
+      <small>주소 또는 장소명을 검색해 좌표를 선택합니다. 선택 결과는 위 새 핀 등록 폼에 반영됩니다.</small>
+
+      <div class="field-group">
+        <div class="field">
+          <label for="spot-search">검색어</label>
+          <input id="spot-search" type="text" placeholder="예: 시청역, 서울 중구 세종대로 110">
+        </div>
+        <div class="button-row">
+          <button id="btn-search" type="button" class="btn-outline">검색</button>
+        </div>
+        <div id="spot-search-results" class="search-results"></div>
+      </div>
+    </div>
+
+    <!-- 3) 저장된 핀 목록 -->
+    <div class="panel" style="flex: 1;">
+      <h2>저장된 핀 목록</h2>
+      <small>저장된 Spot을 클릭하면 지도에서 해당 위치로 이동하고 반경과 정보창이 표시됩니다.</small>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+          <tr>
+            <th>ID</th>
+            <th>이름</th>
+            <th>lat</th>
+            <th>lon</th>
+            <th>반경(m)</th>
+            <th></th>
+          </tr>
+          </thead>
+          <tbody id="spot-table-body">
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </aside>
+</main>
+
+<footer>
+  <span>My Location 프로젝트 · 핀 & 로케이션 콘솔 (0단계-3)</span>
+  <span>다음 단계: 출발/도착 스팟 선택 · ODsay 경로 표시</span>
+</footer>
+
+<script th:src="@{/js/spot-console.js}"></script>
+<script th:src="@{|https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoMapJsKey}&autoload=false&libraries=services|}"></script>
+
+<script>
+  kakao.maps.load(function () {
+    initSpotConsole();
+  });
+</script>
+
+</body>
+</html>

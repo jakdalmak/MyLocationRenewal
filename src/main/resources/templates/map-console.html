@@ -1,0 +1,240 @@
+<!-- src/main/resources/templates/map/map-console.html -->
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <title>카카오맵 콘솔</title>
+
+  <!-- 기본 폰트 / 아이콘 등 필요하면 추가 -->
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap"/>
+
+  <!-- 간단한 레이아웃용 스타일 (원하면 나중에 별도 CSS로 분리) -->
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Roboto", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #f5f5f7;
+      color: #222;
+    }
+
+    header {
+      height: 56px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #1f2933;
+      color: #f9fafb;
+    }
+
+    header .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    header .logo span {
+      font-size: 18px;
+    }
+
+    header .nav {
+      font-size: 14px;
+      opacity: 0.85;
+    }
+
+    main {
+      display: flex;
+      height: calc(100vh - 56px - 48px); /* 전체 높이 - 헤더 - 푸터 */
+    }
+
+    .map-pane {
+      flex: 2;
+      position: relative;
+      padding: 12px;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      border-radius: 16px;
+      background-color: #ddd;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.15);
+    }
+
+    .console-pane {
+      flex: 1;
+      padding: 12px 12px 12px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .panel {
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 12px 14px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .panel h2 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .panel small {
+      opacity: 0.7;
+      font-size: 12px;
+    }
+
+    .field-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+
+    .field-row span.label {
+      opacity: 0.7;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: #e5f0ff;
+      color: #1d4ed8;
+      font-weight: 500;
+    }
+
+    #console-log {
+      flex: 1;
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: #0b1120;
+      color: #e5e7eb;
+      font-family: "JetBrains Mono", "SF Mono", monospace;
+      font-size: 12px;
+      overflow-y: auto;
+      max-height: 240px;
+      white-space: pre-wrap;
+    }
+
+    #console-log .line {
+      margin-bottom: 2px;
+    }
+
+    footer {
+      height: 48px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #6b7280;
+      background: #f9fafb;
+      border-top: 1px solid #e5e7eb;
+    }
+  </style>
+
+
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <!-- 기존 new_header.jsp의 로고 느낌만 살짝 차용 -->
+    <!-- <img src="/img/Logo2.png" alt="Logo" style="height: 28px;"> -->
+    <span>My Location</span>
+    <span style="font-size: 12px; opacity: .7;">Map Console v0</span>
+  </div>
+  <div class="nav">
+    <!-- 현재 페이지 활성 -->
+    <a th:href="@{/console/map}" class="nav-link nav-link--active">지도 콘솔</a>
+    <!-- 새 핀 콘솔로 이동 -->
+    <a th:href="@{/console/map/spots}" class="nav-link">핀 콘솔</a>
+  </div>
+</header>
+
+<main>
+  <!-- 왼쪽: 지도 영역 -->
+  <section class="map-pane">
+    <div id="map"></div>
+  </section>
+
+  <!-- 오른쪽: 콘솔 UI -->
+  <aside class="console-pane">
+
+    <!-- 현재 위치 패널 -->
+    <div class="panel">
+      <h2>현재 위치</h2>
+      <small>브라우저 GeoLocation 기반. 실패 시 기본 좌표(서울 시청 인근).</small>
+
+      <div class="field-row">
+        <span class="label">위도 (lat)</span>
+        <span id="current-lat">-</span>
+      </div>
+      <div class="field-row">
+        <span class="label">경도 (lng)</span>
+        <span id="current-lng">-</span>
+      </div>
+      <div class="field-row">
+        <span class="label">상태</span>
+        <span id="geo-status" class="badge">대기 중</span>
+      </div>
+    </div>
+
+    <!-- 지도 클릭 상태 패널 -->
+    <div class="panel">
+      <h2>지도 클릭 상태</h2>
+      <small>경로 구현 전 단계 – 클릭 위치를 찍어보는 용도.</small>
+
+      <div class="field-row">
+        <span class="label">마지막 클릭 위도</span>
+        <span id="last-click-lat">-</span>
+      </div>
+      <div class="field-row">
+        <span class="label">마지막 클릭 경도</span>
+        <span id="last-click-lng">-</span>
+      </div>
+    </div>
+
+    <!-- 콘솔 로그 패널 -->
+    <div class="panel" style="flex: 1;">
+      <h2>콘솔 로그</h2>
+      <small>카카오맵 / GeoLocation / 클릭 이벤트 로그 출력</small>
+      <div id="console-log"></div>
+    </div>
+
+  </aside>
+</main>
+
+<footer>
+  <span>My Location 프로젝트 · 카카오맵 콘솔 화면 (0단계)</span>
+  <span>다음 단계: ODsay 대중교통 API 연동 · 경로 표시/주변 탐색</span>
+</footer>
+
+<!-- 1. 콘솔용 JS (함수만 정의, 자동 실행 X) -->
+<script th:src="@{/js/map-console.js}"></script>
+
+<!-- 2. Kakao Map JS SDK (autoload=false로 설정) -->
+<script th:src="@{|https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoMapJsKey}&autoload=false&libraries=services|}"></script>
+
+<!-- 3. SDK 로드가 끝난 뒤에만 initKakaoMapConsole 실행 -->
+<script>
+  // kakao 객체가 로드된 뒤에 콜백 안에서 우리가 만든 init 함수를 호출
+  kakao.maps.load(function () {
+    initKakaoMapConsole();
+  });
+</script>
+</body>
+</html>

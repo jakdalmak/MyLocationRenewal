@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: MyLocation
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mylocation
+    username: postgres
+    password: admin
+    driver-class-name: org.postgresql.Driver
+  config:
+    import:
+      - optional:file:/app/API-KEY.yml
+      - optional:classpath:API-KEY.yml
+  # common-entity 가 gradle의 dependency에 포함되어있기 때문에 common-entity의 resources안의 파일들도 jar로 같이 읽어집니다.
+#  sql:
+#    init:
+#      mode: never
+#      encoding: UTF-8
+#      schema-locations:
+#        - classpath:db/init/schema.sql   # common-entity에 존재하는 schema.sql을 사용합니다.
+#      data-locations:
+#        - classpath:db/init/data.sql     # common-entity에 존재하는 data.sql을 사용합니다.
+#      platform: postgresql
+  jpa:
+    hibernate:
+      ddl-auto: none
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    properties:
+      hibernate:
+        format_sql: true
+        default_batch_fetch_size: 1000
+        use_sql_comments: true
+
+kakao:
+  map:
+    javascript-key: ${kakao-api.map.js-key}
