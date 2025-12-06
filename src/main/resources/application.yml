@@ -34,3 +34,6 @@ spring:
 kakao:
   map:
     javascript-key: ${kakao-api.map.js-key}
+
+odsay:
+  pathfind-key: ${odsay.api-key}

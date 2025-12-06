@@ -1,4 +1,4 @@
-package com.jakdalmak.MyLocation.spot.controller;
+package com.jakdalmak.MyLocation.spot.command.application.controller;
 
 
 import org.springframework.beans.factory.annotation.Value;

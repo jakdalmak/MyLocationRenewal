@@ -1,0 +1,179 @@
+<!-- src/main/resources/templates/console/route-console.html -->
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <title>ODsay 경로 콘솔</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        .page {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            padding: 12px 20px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 16px;
+            padding: 16px;
+            height: calc(100vh - 54px);
+            box-sizing: border-box;
+        }
+
+        .panel {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 12px 14px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        .panel h2 {
+            margin: 0 0 10px;
+            font-size: 16px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .form-row label {
+            width: 60px;
+            font-size: 12px;
+            line-height: 24px;
+        }
+
+        .form-row input {
+            flex: 1;
+            padding: 3px 6px;
+            font-size: 13px;
+        }
+
+        button {
+            padding: 6px 10px;
+            font-size: 13px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            cursor: pointer;
+            background: #f8f8f8;
+        }
+
+        button:hover {
+            background: #eee;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+        }
+
+        #route-summary {
+            margin-top: 8px;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .small-note {
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <header>
+        <strong>ODsay 대중교통 경로 콘솔</strong>
+        <span style="font-size: 12px; color: #666; margin-left: 8px;">
+            (서울역 ↔ 김포공항역 예제)
+        </span>
+    </header>
+
+    <div class="content">
+        <!-- 좌측 패널: 입력 / 결과 -->
+        <section class="panel">
+            <h2>출발 / 도착 좌표 입력</h2>
+
+            <div style="font-size: 12px; margin-bottom: 6px;">
+                KakaoMap에서 좌표 찍어서 넣어도 되고,<br/>
+                기본으로는 서울역(공항철도) → 김포공항역(5호선 기준).
+            </div>
+
+            <h3 style="font-size: 14px; margin: 10px 0 4px;">출발 (SX,SY)</h3>
+            <div class="form-row">
+                <label>위도(SY)</label>
+                <input id="startLat" type="number" step="0.0000001"
+                       th:value="${defaultStartLat}" />
+            </div>
+            <div class="form-row">
+                <label>경도(SX)</label>
+                <input id="startLng" type="number" step="0.0000001"
+                       th:value="${defaultStartLng}" />
+            </div>
+
+            <h3 style="font-size: 14px; margin: 10px 0 4px;">도착 (EX,EY)</h3>
+            <div class="form-row">
+                <label>위도(EY)</label>
+                <input id="endLat" type="number" step="0.0000001"
+                       th:value="${defaultEndLat}" />
+            </div>
+            <div class="form-row">
+                <label>경도(EX)</label>
+                <input id="endLng" type="number" step="0.0000001"
+                       th:value="${defaultEndLng}" />
+            </div>
+
+            <div style="margin-top: 8px; display: flex; gap: 8px;">
+                <button type="button" id="btn-set-seoul-gimpo">
+                    서울역 ↔ 김포공항 좌표 세팅
+                </button>
+                <button type="button" id="btn-search-route">
+                    대중교통 경로 조회
+                </button>
+            </div>
+
+            <div class="small-note">
+                * input 값은 그대로 ODsay `SX,SY,EX,EY`로 전달됨.<br/>
+                * API 결과 중 0번 경로를 대표 경로로 사용.
+            </div>
+
+            <div id="route-summary"></div>
+        </section>
+
+        <!-- 우측: 지도 -->
+        <section>
+            <div id="map"></div>
+        </section>
+    </div>
+</div>
+
+<!-- route 전용 JS -->
+<script th:src="@{/js/route-console.js}"></script>
+
+<!-- Kakao Map SDK (네가 0단계에서 쓰던 방식 그대로) -->
+<script th:src="@{|https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoMapJsKey}&autoload=false&libraries=services|}"></script>
+
+<script>
+    kakao.maps.load(function () {
+        initRouteConsole();
+    });
+</script>
+</body>
+</html>

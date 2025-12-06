@@ -1,4 +1,4 @@
-package com.jakdalmak.MyLocation.spot.domain;
+package com.jakdalmak.MyLocation.spot.command.application.domain.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

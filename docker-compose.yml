@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  backend:
+    image: jakdalmak7961/mylocation:1.0
+    container_name: mylocation-backend
+    depends_on:
+      - db
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/mylocation
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: admin
+      TZ: Asia/Seoul
+    volumes:
+      - ./API-KEY.yml:/app/API-KEY.yml
+    restart: always
+
+  db:
+    image: postgres:16
+    container_name: mylocation-db
+    environment:
+      POSTGRES_DB: mylocation
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      TZ: Asia/Seoul
+      PGTZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  postgres_data:
