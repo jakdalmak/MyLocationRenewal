@@ -26,7 +26,7 @@
 
         .content {
             display: grid;
-            grid-template-columns: 320px 1fr;
+            grid-template-columns: 340px 1fr;
             gap: 16px;
             padding: 16px;
             height: calc(100vh - 54px);
@@ -39,11 +39,17 @@
             padding: 12px 14px;
             box-sizing: border-box;
             overflow-y: auto;
+            background: #fff;
         }
 
         .panel h2 {
             margin: 0 0 10px;
             font-size: 16px;
+        }
+
+        .panel small {
+            font-size: 11px;
+            color: #666;
         }
 
         .form-row {
@@ -53,7 +59,7 @@
         }
 
         .form-row label {
-            width: 60px;
+            width: 70px;
             font-size: 12px;
             line-height: 24px;
         }
@@ -77,11 +83,28 @@
             background: #eee;
         }
 
+        .btn-small {
+            font-size: 11px;
+            padding: 4px 8px;
+        }
+
+        .pin-toggle-btn {
+            background: #f3f4f6;
+            border-color: #d1d5db;
+        }
+
+        .pin-toggle-btn.pin-toggle-btn--active {
+            background: #1f2937;
+            color: #f9fafb;
+            border-color: #111827;
+        }
+
         #map {
             width: 100%;
             height: 100%;
             border-radius: 8px;
             border: 1px solid #ddd;
+            background: #e5e7eb;
         }
 
         #route-summary {
@@ -94,6 +117,107 @@
             font-size: 11px;
             color: #666;
             margin-top: 4px;
+        }
+
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            margin: 10px 0 4px;
+        }
+
+        .marker-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 3px;
+        }
+
+        .marker-dot--start {
+            background: #2563eb; /* 파란색: 출발 */
+        }
+
+        .marker-dot--end {
+            background: #ef4444; /* 빨간색: 도착 */
+        }
+
+        /* 우측 컬럼: 지도 + 스팟 목록 */
+        .map-column {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            height: 100%;
+        }
+
+        .map-wrapper {
+            flex: 1;
+            min-height: 260px;
+        }
+
+        .spot-panel {
+            max-height: 230px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .spot-panel h2 {
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .spot-table-wrapper {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        thead {
+            position: sticky;
+            top: 0;
+            background: #f9fafb;
+            z-index: 1;
+        }
+
+        th, td {
+            padding: 4px 6px;
+            border-bottom: 1px solid #e5e7eb;
+            text-align: left;
+            white-space: nowrap;
+        }
+
+        tr:hover {
+            background: #f3f4f6;
+        }
+
+        .spot-name-cell {
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .spot-empty {
+            padding: 6px 8px;
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .spot-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 999px;
+            border: 1px solid #e5e7eb;
+            font-size: 10px;
+            color: #4b5563;
+            background: #f9fafb;
         }
     </style>
 </head>
@@ -116,7 +240,10 @@
                 기본으로는 서울역(공항철도) → 김포공항역(5호선 기준).
             </div>
 
-            <h3 style="font-size: 14px; margin: 10px 0 4px;">출발 (SX,SY)</h3>
+            <h3 class="section-title">
+                <span class="marker-dot marker-dot--start"></span>
+                <span>출발 (SX,SY)</span>
+            </h3>
             <div class="form-row">
                 <label>위도(SY)</label>
                 <input id="startLat" type="number" step="0.0000001"
@@ -127,8 +254,19 @@
                 <input id="startLng" type="number" step="0.0000001"
                        th:value="${defaultStartLng}" />
             </div>
+            <div class="form-row">
+                <label></label>
+                <button type="button"
+                        id="btn-start-pin-mode"
+                        class="pin-toggle-btn btn-small">
+                    출발 핀 위치 변경
+                </button>
+            </div>
 
-            <h3 style="font-size: 14px; margin: 10px 0 4px;">도착 (EX,EY)</h3>
+            <h3 class="section-title">
+                <span class="marker-dot marker-dot--end"></span>
+                <span>도착 (EX,EY)</span>
+            </h3>
             <div class="form-row">
                 <label>위도(EY)</label>
                 <input id="endLat" type="number" step="0.0000001"
@@ -139,8 +277,16 @@
                 <input id="endLng" type="number" step="0.0000001"
                        th:value="${defaultEndLng}" />
             </div>
+            <div class="form-row">
+                <label></label>
+                <button type="button"
+                        id="btn-end-pin-mode"
+                        class="pin-toggle-btn btn-small">
+                    도착 핀 위치 변경
+                </button>
+            </div>
 
-            <div style="margin-top: 8px; display: flex; gap: 8px;">
+            <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">
                 <button type="button" id="btn-set-seoul-gimpo">
                     서울역 ↔ 김포공항 좌표 세팅
                 </button>
@@ -150,16 +296,49 @@
             </div>
 
             <div class="small-note">
-                * input 값은 그대로 ODsay `SX,SY,EX,EY`로 전달됨.<br/>
+                * input 값은 그대로 ODsay <code>SX,SY,EX,EY</code>로 전달됨.<br/>
                 * API 결과 중 0번 경로를 대표 경로로 사용.
             </div>
 
             <div id="route-summary"></div>
         </section>
 
-        <!-- 우측: 지도 -->
-        <section>
-            <div id="map"></div>
+        <!-- 우측: 지도 + 스팟 패널 -->
+        <section class="map-column">
+            <div class="map-wrapper">
+                <div id="map"></div>
+            </div>
+
+            <section class="panel spot-panel">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h2>저장된 스팟 목록</h2>
+                    <span class="spot-badge">미리보기 UI (DB 연동 예정)</span>
+                </div>
+                <small>
+                    Spot 콘솔에서 등록한 스팟을 기반으로, 추후 출발/도착 스팟 선택 기능을 붙일 예정입니다.
+                    현재는 목록·위치·정보창 표시까지만 동작합니다.
+                </small>
+
+                <div class="spot-table-wrapper">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>이름</th>
+                            <th>lat</th>
+                            <th>lon</th>
+                            <th>반경</th>
+                        </tr>
+                        </thead>
+                        <tbody id="route-spot-table-body">
+                        <!-- JS로 채움 -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="route-spot-empty" class="spot-empty" style="display:none;">
+                    아직 불러온 스팟이 없습니다. (API 준비 전이거나, 등록된 스팟이 없을 수 있습니다.)
+                </div>
+            </section>
         </section>
     </div>
 </div>
@@ -167,7 +346,7 @@
 <!-- route 전용 JS -->
 <script th:src="@{/js/route-console.js}"></script>
 
-<!-- Kakao Map SDK (네가 0단계에서 쓰던 방식 그대로) -->
+<!-- Kakao Map SDK -->
 <script th:src="@{|https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoMapJsKey}&autoload=false&libraries=services|}"></script>
 
 <script>
