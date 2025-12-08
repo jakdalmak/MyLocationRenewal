@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jakdalmak.MyLocation.route.dto.LatLngDto;
 import com.jakdalmak.MyLocation.route.dto.RoutePolylineResponse;
+import com.jakdalmak.MyLocation.route.dto.RouteSegmentDto;
 import com.jakdalmak.MyLocation.route.dto.RouteSummaryDto;
+import com.jakdalmak.MyLocation.route.dto.RouteTransitStepDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +19,7 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -40,6 +43,7 @@ public class OdsayRouteService {
 
     /**
      * ODsay 샘플 코드 스타일의 순수 HttpURLConnection GET.
+     *  👉 통신 방식은 절대 건드리지 않음.
      */
     private String httpGet(String urlInfo) throws Exception {
         URL url = new URL(urlInfo);
@@ -50,9 +54,13 @@ public class OdsayRouteService {
         int status = conn.getResponseCode();
         BufferedReader br;
         if (status >= 200 && status < 300) {
-            br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
+            br = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8)
+            );
         } else {
-            br = new BufferedReader(new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8));
+            br = new BufferedReader(
+                    new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8)
+            );
         }
 
         StringBuilder sb = new StringBuilder();
@@ -91,7 +99,7 @@ public class OdsayRouteService {
             );
             log.info("ODsay apiKey encoded='{}'", encodedKey);
 
-            // 1) searchPubTransPathT 호출
+            // 1) searchPubTransPathT 호출 (통신 방식 그대로)
             String searchUrl =
                     SEARCH_URL
                             + "?SX=" + sx
@@ -139,7 +147,75 @@ public class OdsayRouteService {
             int subwayTransitCount = info.path("subwayTransitCount").asInt();
             String mapObj = info.path("mapObj").asText();
 
-            // 2) loadLane 호출
+            // ---------------------------------------------------------
+            // (1) subPath → steps / transferPoints 파싱
+            // ---------------------------------------------------------
+            List<RouteTransitStepDto> steps = new ArrayList<>();
+            List<LatLngDto> transferPoints = new ArrayList<>();
+
+            try {
+                JsonNode subPathArray = path0.path("subPath");
+                List<JsonNode> transitSubpaths = new ArrayList<>();
+
+                if (subPathArray.isArray()) {
+                    for (JsonNode sp : subPathArray) {
+                        int trafficType = sp.path("trafficType").asInt(); // 1:지하철, 2:버스, 3:도보
+
+                        // 도보(3)는 상세 목록에서 제외
+                        if (trafficType != 1 && trafficType != 2) {
+                            continue;
+                        }
+
+                        String type = (trafficType == 2) ? "BUS" : "SUBWAY";
+
+                        String startName = sp.path("startName").asText("");
+                        String endName = sp.path("endName").asText("");
+                        int sectionTime = sp.path("sectionTime").asInt(0);
+                        int stationCount = sp.path("stationCount").asInt(0);
+
+                        // 노선 이름 (버스: busNo, 지하철: name)
+                        String lineName = "";
+                        JsonNode lanesNode = sp.path("lane");
+                        if (lanesNode.isArray() && lanesNode.size() > 0) {
+                            JsonNode lane0 = lanesNode.get(0);
+                            lineName = lane0.path("busNo").asText("");
+                            if (lineName.isEmpty()) {
+                                lineName = lane0.path("name").asText("");
+                            }
+                        }
+
+                        steps.add(new RouteTransitStepDto(
+                                type,
+                                lineName,
+                                startName,
+                                endName,
+                                sectionTime,
+                                stationCount
+                        ));
+
+                        transitSubpaths.add(sp);
+                    }
+
+                    // 환승 지점:
+                    //  - 두 번째 대중교통 subPath부터 각 subPath의 startX/startY 를 환승 지점으로 사용
+                    for (int i = 1; i < transitSubpaths.size(); i++) {
+                        JsonNode sp = transitSubpaths.get(i);
+                        double x = sp.path("startX").asDouble(Double.NaN);
+                        double y = sp.path("startY").asDouble(Double.NaN);
+                        if (!Double.isNaN(x) && !Double.isNaN(y)) {
+                            transferPoints.add(new LatLngDto(y, x));
+                        }
+                    }
+                }
+            } catch (Exception parseEx) {
+                log.warn("ODsay subPath 파싱 중 오류 발생 (steps/transferPoints는 비워둠).", parseEx);
+                steps = Collections.emptyList();
+                transferPoints = Collections.emptyList();
+            }
+
+            // ---------------------------------------------------------
+            // (2) loadLane → segments / 전체 points 파싱
+            // ---------------------------------------------------------
             String mapObjectParam = "0:0@" + mapObj;
             String encodedMapObject = URLEncoder.encode(mapObjectParam, StandardCharsets.UTF_8);
 
@@ -165,10 +241,28 @@ public class OdsayRouteService {
             JsonNode laneResult = laneRoot.path("result");
             JsonNode laneArray = laneResult.path("lane");
 
-            List<LatLngDto> points = new ArrayList<>();
+            List<LatLngDto> allPoints = new ArrayList<>();
+            List<RouteSegmentDto> segments = new ArrayList<>();
 
             if (laneArray.isArray()) {
                 for (JsonNode lane : laneArray) {
+                    int laneType = lane.path("type").asInt(0); // loadLane 문서 기준
+                    String segType;
+
+                    // 대중교통 길찾기 기준 타입 매핑
+                    // 1:지하철, 2/3/4/5:버스, 9:도보
+                    if (laneType == 1 || laneType == 6) {
+                        segType = "SUBWAY";
+                    } else if (laneType == 2 || laneType == 3 || laneType == 4 || laneType == 5) {
+                        segType = "BUS";
+                    } else if (laneType == 9) {
+                        segType = "WALK";
+                    } else {
+                        segType = "OTHER";
+                    }
+
+                    List<LatLngDto> segPoints = new ArrayList<>();
+
                     JsonNode sections = lane.path("section");
                     if (!sections.isArray()) continue;
 
@@ -179,8 +273,14 @@ public class OdsayRouteService {
                         for (JsonNode pos : graphPos) {
                             double x = pos.path("x").asDouble(); // 경도
                             double y = pos.path("y").asDouble(); // 위도
-                            points.add(new LatLngDto(y, x));
+                            LatLngDto dto = new LatLngDto(y, x);
+                            segPoints.add(dto);
+                            allPoints.add(dto);
                         }
+                    }
+
+                    if (!segPoints.isEmpty()) {
+                        segments.add(new RouteSegmentDto(segType, segPoints));
                     }
                 }
             }
@@ -192,7 +292,15 @@ public class OdsayRouteService {
                     subwayTransitCount
             );
 
-            return new RoutePolylineResponse(summary, points);
+            List<LatLngDto> points = allPoints.isEmpty() ? Collections.emptyList() : allPoints;
+
+            return new RoutePolylineResponse(
+                    summary,
+                    points,
+                    steps,
+                    segments,
+                    transferPoints
+            );
 
         } catch (Exception e) {
             log.error("ODsay route fetch failed (HttpURLConnection)", e);

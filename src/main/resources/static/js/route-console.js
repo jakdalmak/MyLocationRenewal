@@ -1,21 +1,31 @@
 // src/main/resources/static/js/route-console.js
 
 let routeMap;
-let routePolyline = null;
+
+// 출발/도착 마커
 let startMarker = null;
 let endMarker = null;
 
-// 출발/도착 핀 색상을 구분하기 위한 MarkerImage
+// 마커 이미지들
 let startMarkerImage = null;
 let endMarkerImage = null;
+let transferMarkerImage = null;
 
-// 현재 "핀 위치 변경" 모드 상태: 'start' | 'end' | null
+// 경로 polyline 들 (버스/지하철/도보 구간별)
+let routePolylines = [];
+
+// 환승 마커
+let transferMarkers = [];
+let transfersVisible = false;
+let lastRouteTransfers = [];
+
+// "핀 위치 변경" 모드: 'start' | 'end' | null
 let activePinMode = null;
 
-// 스팟 목록/마커 (spot-console와 비슷한 구조)
+// 스팟 목록/마커 (spot-console 미리보기용)
 let routeSpots = [];
 let routeSpotMarkers = [];
-let routeSpotMarkerMap = {}; // spotId -> Marker
+let routeSpotMarkerMap = {};
 let routeGeocoder = null;
 let routeInfoWindow = null;
 
@@ -35,22 +45,23 @@ function initRouteConsole() {
         level: 8,
     });
 
-    // 지오코더 / 인포윈도우 (스팟 InfoWindow용)
+    // 지오코더 / 인포윈도우
     if (kakao.maps.services && kakao.maps.services.Geocoder) {
         routeGeocoder = new kakao.maps.services.Geocoder();
     }
     routeInfoWindow = new kakao.maps.InfoWindow({ zIndex: 3 });
 
-    // 출발/도착 핀용 이미지 준비 (SVG data URL)
-    startMarkerImage = createColoredPinImage("#2563eb"); // 파란색
-    endMarkerImage = createColoredPinImage("#ef4444");   // 빨간색
+    // 출발/도착/환승용 마커 이미지 생성 (물방울형 SVG)
+    startMarkerImage = createPinMarkerImage("#2563eb"); // 파랑: 출발
+    endMarkerImage = createPinMarkerImage("#ef4444");   // 빨강: 도착
+    // 환승 지점은 별도 보라색 핀
+    transferMarkerImage = createPinMarkerImage("#a855f7");
 
     // 버튼 이벤트
     document
         .getElementById("btn-set-seoul-gimpo")
         .addEventListener("click", () => {
             fillSeoulGimpo();
-            // 좌표가 바뀌었으니 기존 경로는 초기화
             clearRouteVisualization();
         });
 
@@ -64,6 +75,7 @@ function initRouteConsole() {
 
     const btnStartPinMode = document.getElementById("btn-start-pin-mode");
     const btnEndPinMode = document.getElementById("btn-end-pin-mode");
+    const btnToggleTransfers = document.getElementById("btn-toggle-transfers");
 
     if (btnStartPinMode) {
         btnStartPinMode.addEventListener("click", () => {
@@ -75,12 +87,16 @@ function initRouteConsole() {
             setActivePinMode("end");
         });
     }
+    if (btnToggleTransfers) {
+        btnToggleTransfers.addEventListener("click", () => {
+            toggleTransferMarkers();
+        });
+    }
 
     // 지도 클릭 시: 활성화된 핀 모드에 따라 출발/도착 핀 이동
     kakao.maps.event.addListener(routeMap, "click", function (mouseEvent) {
-        if (!activePinMode) {
-            return;
-        }
+        if (!activePinMode) return;
+
         const latlng = mouseEvent.latLng;
         const lat = latlng.getLat();
         const lng = latlng.getLng();
@@ -95,10 +111,10 @@ function initRouteConsole() {
             setEndMarker(lat, lng);
         }
 
-        // 좌표가 변경되었으니 기존 경로/요약은 초기화
+        // 좌표가 변경되었으니 기존 경로/요약/환승핀 초기화
         clearRouteVisualization();
 
-        // 지도를 한 번 클릭하면 핀 변경 모드 해제
+        // 지도 한 번 클릭하면 핀 변경 모드 해제
         setActivePinMode(null);
     });
 
@@ -108,7 +124,7 @@ function initRouteConsole() {
     // Spot 콘솔과 공유할 스팟 목록 UI 미리 구성
     loadRouteSpots();
 
-    // 리사이즈 시 화면 재배치
+    // 리사이즈 시 지도 재배치
     window.addEventListener("resize", function () {
         setTimeout(function () {
             routeMap.relayout();
@@ -116,23 +132,25 @@ function initRouteConsole() {
     });
 }
 
-/* ===================== 공통 유틸 ===================== */
+/* ===================== 마커/모드 유틸 ===================== */
 
-// 컬러 SVG를 data URL로 만드는 간단한 핀 이미지
-function createColoredPinImage(color) {
+// 물방울 모양 SVG 마커 이미지 생성
+function createPinMarkerImage(color) {
     const svg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">` +
-        `<circle cx="16" cy="16" r="7" fill="${color}" stroke="white" stroke-width="2"/>` +
-        `</svg>`;
+        `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">` +
+        `<defs><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">` +
+        `<feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000" flood-opacity="0.25"/></filter></defs>` +
+        `<path filter="url(#shadow)" d="M16 2C9.9 2 5 7 5 13.1c0 6.9 7 14.4 10.1 17.2a1.3 1.3 0 0 0 1.8 0C20 27.5 27 20 27 13.1 27 7 22.1 2 16 2z" fill="${color}" stroke="#ffffff" stroke-width="2"/>` +
+        `<circle cx="16" cy="14" r="4.5" fill="#ffffff" fill-opacity="0.9"/></svg>`;
+
     const url = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
-    const size = new kakao.maps.Size(32, 32);
+    const size = new kakao.maps.Size(32, 40);
     const option = {
-        offset: new kakao.maps.Point(16, 16),
+        offset: new kakao.maps.Point(16, 40),
     };
     return new kakao.maps.MarkerImage(url, size, option);
 }
 
-// 출발/도착 핀 위치를 input 값 기준으로 한 번 그려줌
 function placeInitialMarkersFromInputs() {
     const startLat = parseFloat(document.getElementById("startLat").value);
     const startLng = parseFloat(document.getElementById("startLng").value);
@@ -155,37 +173,30 @@ function placeInitialMarkersFromInputs() {
     }
 }
 
-// 출발 핀 설정/업데이트
 function setStartMarker(lat, lng) {
     const pos = new kakao.maps.LatLng(lat, lng);
     if (!startMarker) {
-        startMarker = new kakao.maps.Marker({
-            map: routeMap,
-            position: pos,
-            image: startMarkerImage,
-        });
+        const options = { map: routeMap, position: pos };
+        if (startMarkerImage) options.image = startMarkerImage;
+        startMarker = new kakao.maps.Marker(options);
     } else {
         startMarker.setPosition(pos);
         startMarker.setMap(routeMap);
     }
 }
 
-// 도착 핀 설정/업데이트
 function setEndMarker(lat, lng) {
     const pos = new kakao.maps.LatLng(lat, lng);
     if (!endMarker) {
-        endMarker = new kakao.maps.Marker({
-            map: routeMap,
-            position: pos,
-            image: endMarkerImage,
-        });
+        const options = { map: routeMap, position: pos };
+        if (endMarkerImage) options.image = endMarkerImage;
+        endMarker = new kakao.maps.Marker(options);
     } else {
         endMarker.setPosition(pos);
         endMarker.setMap(routeMap);
     }
 }
 
-// 핀 위치 변경 모드 토글 (동일 버튼 재클릭으로 해제는 하지 않고, 요구사항대로 반대 버튼/지도 클릭으로만 해제)
 function setActivePinMode(mode) {
     activePinMode = mode;
     const startBtn = document.getElementById("btn-start-pin-mode");
@@ -199,25 +210,79 @@ function setActivePinMode(mode) {
     }
 }
 
-// 기존 경로와 요약 정보만 초기화 (핀은 유지)
+/* ===================== 경로 초기화/환승 토글 ===================== */
+
+function clearRoutePolylines() {
+    routePolylines.forEach((pl) => pl.setMap(null));
+    routePolylines = [];
+}
+
+function clearTransferMarkers() {
+    transferMarkers.forEach((m) => m.setMap(null));
+    transferMarkers = [];
+}
+
 function clearRouteVisualization() {
-    if (routePolyline) {
-        routePolyline.setMap(null);
-        routePolyline = null;
-    }
+    clearRoutePolylines();
+    clearTransferMarkers();
+    transfersVisible = false;
+    lastRouteTransfers = [];
+
     const summaryDiv = document.getElementById("route-summary");
-    if (summaryDiv) {
-        summaryDiv.innerHTML = "";
+    if (summaryDiv) summaryDiv.innerHTML = "";
+
+    const btnToggleTransfers = document.getElementById("btn-toggle-transfers");
+    if (btnToggleTransfers) {
+        btnToggleTransfers.textContent = "환승 핀 표시하기";
     }
 }
 
-/* ===================== 좌표 세팅 기본값 ===================== */
+function toggleTransferMarkers() {
+    const btn = document.getElementById("btn-toggle-transfers");
+    if (!btn) return;
+
+    if (!lastRouteTransfers || lastRouteTransfers.length === 0) {
+        alert("표시할 환승 지점이 없습니다.\n먼저 대중교통 경로를 조회하거나, 환승이 있는 경로인지 확인해주세요.");
+        return;
+    }
+
+    if (!transfersVisible) {
+        showTransferMarkers();
+        transfersVisible = true;
+        btn.textContent = "환승 핀 숨기기";
+    } else {
+        clearTransferMarkers();
+        transfersVisible = false;
+        btn.textContent = "환승 핀 표시하기";
+    }
+}
+
+function showTransferMarkers() {
+    clearTransferMarkers();
+    if (!transferMarkerImage) return;
+
+    lastRouteTransfers.forEach((tp) => {
+        const lat = Number(tp.lat);
+        const lng = Number(tp.lng);
+        if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+
+        const pos = new kakao.maps.LatLng(lat, lng);
+        const marker = new kakao.maps.Marker({
+            map: routeMap,
+            position: pos,
+            image: transferMarkerImage,
+        });
+        transferMarkers.push(marker);
+    });
+}
+
+/* ===================== 기본 좌표 세팅 ===================== */
 
 function fillSeoulGimpo() {
-    // 서버에서 주는 기본값과 일치시키거나, 여기서 하드코딩해도 됨
-    const startLat = 37.553441;    // 서울역(공항철도) 근처
+    // 서울역(공항철도) ↔ 김포공항역 예제
+    const startLat = 37.553441;
     const startLng = 126.9696769;
-    const endLat = 37.56306;       // 김포공항역 근처
+    const endLat = 37.56306;
     const endLng = 126.80083;
 
     document.getElementById("startLat").value = startLat;
@@ -228,7 +293,6 @@ function fillSeoulGimpo() {
     setStartMarker(startLat, startLng);
     setEndMarker(endLat, endLng);
 
-    // 처음부터 두 핀이 다 보이도록 bounds
     const bounds = new kakao.maps.LatLngBounds();
     bounds.extend(startMarker.getPosition());
     bounds.extend(endMarker.getPosition());
@@ -277,66 +341,144 @@ async function requestRouteFromServer() {
     }
 }
 
+// data: RoutePolylineResponse 확장 버전
 function drawRouteOnMap(data, { startLat, startLng, endLat, endLng }) {
-    const points = data.points || [];
-    const summary = data.summary;
+    const summary = data.summary || null;
+    const segments = Array.isArray(data.segments) ? data.segments : null;
+    const points = Array.isArray(data.points) ? data.points : [];
+    const steps = Array.isArray(data.steps) ? data.steps : [];
+    lastRouteTransfers = Array.isArray(data.transferPoints)
+        ? data.transferPoints
+        : [];
 
-    if (!points.length) {
-        alert("경로 좌표가 없습니다.");
-        return;
-    }
-
-    // 1) 기존 Polyline / 마커 제거
-    if (routePolyline) {
-        routePolyline.setMap(null);
-        routePolyline = null;
-    }
+    // 기존 경로/요약/환승핀 초기화
+    clearRouteVisualization();
 
     // 출발/도착 마커는 새 경로 기준으로 다시 세팅
     setStartMarker(startLat, startLng);
     setEndMarker(endLat, endLng);
 
-    // 2) Polyline path 생성
-    const path = points.map((p) => new kakao.maps.LatLng(p.lat, p.lng));
-
-    routePolyline = new kakao.maps.Polyline({
-        map: routeMap,
-        path: path,
-        strokeWeight: 5,
-        strokeColor: "#ff0000",
-        strokeOpacity: 0.8,
-        strokeStyle: "solid",
-    });
-
-    // 3) bounds 맞추기
     const bounds = new kakao.maps.LatLngBounds();
-    path.forEach((latlng) => bounds.extend(latlng));
-    routeMap.setBounds(bounds);
 
-    // 4) 요약정보 표기
-    const summaryDiv = document.getElementById("route-summary");
-    if (summary) {
-        const paymentText =
-            typeof summary.payment === "number"
-                ? summary.payment.toLocaleString()
-                : summary.payment;
+    if (segments && segments.length > 0) {
+        // 타입별 구간 polyline
+        segments.forEach((seg) => {
+            if (!Array.isArray(seg.points) || seg.points.length === 0) {
+                return;
+            }
+            const path = seg.points.map(
+                (p) => new kakao.maps.LatLng(p.lat, p.lng)
+            );
+            const color = getSegmentColor(seg.type);
 
-        summaryDiv.innerHTML =
-            `<hr style="margin:8px 0;">` +
-            `<div><strong>경로 요약</strong></div>` +
-            `<div>총 소요시간: ${summary.totalTime}분</div>` +
-            `<div>총 요금: ${paymentText}원</div>` +
-            `<div>버스 환승: ${summary.busTransitCount}회 / ` +
-            `지하철 환승: ${summary.subwayTransitCount}회</div>`;
-    } else {
-        summaryDiv.innerHTML = "";
+            const polyline = new kakao.maps.Polyline({
+                map: routeMap,
+                path: path,
+                strokeWeight: 5,
+                strokeColor: color,
+                strokeOpacity: 0.9,
+                strokeStyle: "solid",
+            });
+
+            routePolylines.push(polyline);
+            path.forEach((latlng) => bounds.extend(latlng));
+        });
+    } else if (points.length > 0) {
+        // 백엔드가 아직 segments를 안 내려주는 경우: 기존처럼 단일 빨간 선
+        const path = points.map((p) => new kakao.maps.LatLng(p.lat, p.lng));
+        const polyline = new kakao.maps.Polyline({
+            map: routeMap,
+            path: path,
+            strokeWeight: 5,
+            strokeColor: "#ff0000",
+            strokeOpacity: 0.8,
+            strokeStyle: "solid",
+        });
+        routePolylines.push(polyline);
+        path.forEach((latlng) => bounds.extend(latlng));
     }
+
+    if (!bounds.isEmpty && typeof bounds.isEmpty === "function") {
+        // Kakao LatLngBounds 에는 isEmpty가 없을 수도 있어서 방어
+        routeMap.setBounds(bounds);
+    } else {
+        routeMap.setBounds(bounds);
+    }
+
+    // 요약 + 상세 경로 렌더링
+    renderRouteSummary(summary, steps);
 }
 
-/* ===================== Spot 목록 UI (미리 구성) ===================== */
+function getSegmentColor(type) {
+    if (!type) return "#6b7280"; // gray
+    const upper = String(type).toUpperCase();
+    if (upper === "BUS") return "#10b981"; // green
+    if (upper === "SUBWAY") return "#6366f1"; // indigo/purple
+    if (upper === "WALK") return "#6b7280"; // gray
+    return "#6b7280";
+}
 
-// Spot 콘솔에서 사용하는 JSON 구조와 동일하다고 가정:
-// { id, name, lat, lon, locationWidth }
+function renderRouteSummary(summary, steps) {
+    const summaryDiv = document.getElementById("route-summary");
+    if (!summaryDiv) return;
+
+    if (!summary) {
+        summaryDiv.innerHTML = "";
+        return;
+    }
+
+    const paymentText =
+        typeof summary.payment === "number"
+            ? summary.payment.toLocaleString()
+            : summary.payment;
+
+    let html =
+        `<hr style="margin:8px 0;">` +
+        `<div><strong>경로 요약</strong></div>` +
+        `<div>총 소요시간: ${summary.totalTime}분</div>` +
+        `<div>총 요금: ${paymentText}원</div>` +
+        `<div>버스 환승: ${summary.busTransitCount}회 / ` +
+        `지하철 환승: ${summary.subwayTransitCount}회</div>`;
+
+    if (steps && steps.length > 0) {
+        html += `<details class="route-steps" open>` +
+            `<summary>상세 경로 (버스/지하철 순서)</summary>` +
+            `<ol>`;
+        steps.forEach((step) => {
+            const typeUpper = String(step.type || "").toUpperCase();
+            const isBus = typeUpper === "BUS";
+            const tagClass = isBus ? "bus" : "subway";
+            const tagLabel = isBus ? "버스" : "지하철";
+
+            const lineName = step.lineName || "";
+            const startName = step.startName || "";
+            const endName = step.endName || "";
+            const sectionTime =
+                typeof step.sectionTime === "number" ? step.sectionTime : null;
+            const stationCount =
+                typeof step.stationCount === "number" ? step.stationCount : null;
+
+            let lineInfo = lineName ? ` ${escapeHtml(lineName)}` : "";
+            let extra = [];
+            if (stationCount !== null) extra.push(`${stationCount}정거장`);
+            if (sectionTime !== null) extra.push(`${sectionTime}분`);
+            const extraText = extra.length ? ` (${extra.join(" / ")})` : "";
+
+            html +=
+                `<li>` +
+                `<span class="route-step-tag ${tagClass}">${tagLabel}</span>` +
+                `${escapeHtml(startName)} → ${escapeHtml(endName)}` +
+                `${lineInfo}${extraText}` +
+                `</li>`;
+        });
+        html += `</ol></details>`;
+    }
+
+    summaryDiv.innerHTML = html;
+}
+
+/* ===================== Spot 목록 UI (미리보기용) ===================== */
+
 function loadRouteSpots() {
     const tbody = document.getElementById("route-spot-table-body");
     const emptyMsg = document.getElementById("route-spot-empty");
@@ -362,9 +504,7 @@ function loadRouteSpots() {
         })
         .catch((err) => {
             console.log("[route-spot] 스팟 목록을 불러오지 못했습니다.", err);
-            if (tbody) {
-                tbody.innerHTML = "";
-            }
+            if (tbody) tbody.innerHTML = "";
             if (emptyMsg) {
                 emptyMsg.style.display = "block";
                 emptyMsg.textContent =
@@ -378,9 +518,7 @@ function renderRouteSpotTable(spots) {
     if (!tbody) return;
     tbody.innerHTML = "";
 
-    if (!spots || spots.length === 0) {
-        return;
-    }
+    if (!spots || spots.length === 0) return;
 
     spots.forEach((spot) => {
         const tr = document.createElement("tr");
@@ -404,7 +542,6 @@ function renderRouteSpotTable(spots) {
 }
 
 function renderRouteSpotMarkers(spots) {
-    // 기존 마커 제거
     routeSpotMarkers.forEach((m) => m.setMap(null));
     routeSpotMarkers = [];
     routeSpotMarkerMap = {};
@@ -431,7 +568,6 @@ function renderRouteSpotMarkers(spots) {
     });
 }
 
-// 스팟 클릭 시: 지도 이동 + InfoWindow (이름, 주소, 반경)
 function focusRouteSpot(spot) {
     const lat = Number(spot.lat);
     const lon = Number(spot.lon);
@@ -471,7 +607,6 @@ function openRouteSpotInfo(spot) {
         routeInfoWindow.open(routeMap);
     }
 
-    // Kakao Geocoder로 주소 역조회 (spot-console의 openSpotInfo와 동일한 느낌)
     if (!routeGeocoder) return;
 
     routeGeocoder.coord2Address(
@@ -507,7 +642,8 @@ function openRouteSpotInfo(spot) {
     );
 }
 
-// 간단 XSS 방지용
+/* ===================== 공통 유틸 ===================== */
+
 function escapeHtml(str) {
     return String(str)
         .replace(/&/g, "&amp;")

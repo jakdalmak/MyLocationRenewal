@@ -1,5 +1,6 @@
 package com.jakdalmak.MyLocation.spot.command.application.domain.entity;
 
+import com.jakdalmak.MyLocation.spot.command.application.domain.SpotType;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -10,7 +11,7 @@ import java.time.LocalDateTime;
 @Table(
         name = "spot",
         indexes = {
-                @Index(name = "idx_spot_lat_lon", columnList = "latitude, longitude")
+                @Index(name = "idx_spot_lat_lon", columnList = "lat, lon")
         }
 )
 @Getter
@@ -41,4 +42,8 @@ public class Spot {
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(updatable = false)
+    private SpotType type;
 }
