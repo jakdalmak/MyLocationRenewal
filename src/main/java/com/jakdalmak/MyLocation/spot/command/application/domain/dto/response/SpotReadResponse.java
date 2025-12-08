@@ -15,7 +15,7 @@ public class SpotReadResponse {
     private String name;
     private Double lat;
     private Double lon;
-    private Integer locationWidth;
+    private Double locationWidth;
     private LocalDateTime createdAt;
 
     public static SpotReadResponse from(Spot spot) {

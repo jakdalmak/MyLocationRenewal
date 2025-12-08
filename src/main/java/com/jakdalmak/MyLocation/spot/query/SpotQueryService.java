@@ -63,7 +63,6 @@ public class SpotQueryService {
      * (자기 자신은 제외할지 여부를 옵션으로 처리 가능)
      */
     public List<Spot> findSpotsWithinRadiusOfSpot(Long centerSpotId,
-                                                  double radiusMeters,
                                                   boolean excludeSelf) {
 
         Spot center = spotRepository.findById(centerSpotId)
@@ -72,7 +71,7 @@ public class SpotQueryService {
         List<Spot> inside = findSpotsWithinRadius(
                 center.getLat(),
                 center.getLon(),
-                radiusMeters
+                center.getLocationWidth()
         );
 
         if (excludeSelf) {

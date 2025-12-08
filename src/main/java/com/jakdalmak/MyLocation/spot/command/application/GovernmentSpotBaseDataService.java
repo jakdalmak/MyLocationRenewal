@@ -30,7 +30,7 @@ public class GovernmentSpotBaseDataService {
     private final SpotCommandRepository spotRepository;
 
     @Transactional
-    public int importGovernmentSpotsFromCsv(MultipartFile file, int defaultLocationWidthMeter) {
+    public int importGovernmentSpotsFromCsv(MultipartFile file, double defaultLocationWidthMeter) {
         List<Spot> batch = new ArrayList<>();
 
         try (BufferedReader br = new BufferedReader(
@@ -127,7 +127,7 @@ public class GovernmentSpotBaseDataService {
      *  - 역경도
      */
     @Transactional
-    public int importSubwayStationsFromExcel(MultipartFile file, int defaultLocationWidthMeter) {
+    public int importSubwayStationsFromExcel(MultipartFile file, double defaultLocationWidthMeter) {
         List<Spot> batch = new ArrayList<>();
 
         try (InputStream is = file.getInputStream();

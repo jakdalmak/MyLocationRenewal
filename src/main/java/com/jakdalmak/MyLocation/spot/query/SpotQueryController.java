@@ -39,10 +39,9 @@ public class SpotQueryController {
     @GetMapping("/{spotId}/neighbors")
     public List<SpotReadResponse> getSpotsAroundSpot(
             @PathVariable("spotId") Long spotId,
-            @RequestParam(value = "radius", defaultValue = "800") double radiusMeters,
             @RequestParam(value = "excludeSelf", defaultValue = "true") boolean excludeSelf
     ) {
-        List<Spot> spots = spotQueryService.findSpotsWithinRadiusOfSpot(spotId, radiusMeters, excludeSelf);
+        List<Spot> spots = spotQueryService.findSpotsWithinRadiusOfSpot(spotId, excludeSelf);
         return spots.stream()
                 .map(SpotReadResponse::from)
                 .toList();

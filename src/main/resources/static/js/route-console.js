@@ -51,11 +51,10 @@ function initRouteConsole() {
     }
     routeInfoWindow = new kakao.maps.InfoWindow({ zIndex: 3 });
 
-    // 출발/도착/환승용 마커 이미지 생성 (물방울형 SVG)
+    // 출발/도착/환승용 마커 이미지 생성
     startMarkerImage = createPinMarkerImage("#2563eb"); // 파랑: 출발
     endMarkerImage = createPinMarkerImage("#ef4444");   // 빨강: 도착
-    // 환승 지점은 별도 보라색 핀
-    transferMarkerImage = createPinMarkerImage("#a855f7");
+    transferMarkerImage = createPinMarkerImage("#a855f7"); // 별: 환승
 
     // 버튼 이벤트
     document
@@ -68,7 +67,6 @@ function initRouteConsole() {
     document
         .getElementById("btn-search-route")
         .addEventListener("click", () => {
-            // 경로 조회 시에는 핀 위치 변경 모드 해제
             setActivePinMode(null);
             requestRouteFromServer();
         });
@@ -134,21 +132,28 @@ function initRouteConsole() {
 
 /* ===================== 마커/모드 유틸 ===================== */
 
-// 물방울 모양 SVG 마커 이미지 생성
+/**
+ * 카카오 기본 마커 이미지를 사용하도록 구현.
+ *  #2563eb → 파란 핀 (출발)
+ *  #ef4444 → 빨간 핀 (도착)
+ *  그 외    → 별 모양 마커 (환승 등)
+ */
 function createPinMarkerImage(color) {
-    const svg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">` +
-        `<defs><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">` +
-        `<feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000" flood-opacity="0.25"/></filter></defs>` +
-        `<path filter="url(#shadow)" d="M16 2C9.9 2 5 7 5 13.1c0 6.9 7 14.4 10.1 17.2a1.3 1.3 0 0 0 1.8 0C20 27.5 27 20 27 13.1 27 7 22.1 2 16 2z" fill="${color}" stroke="#ffffff" stroke-width="2"/>` +
-        `<circle cx="16" cy="14" r="4.5" fill="#ffffff" fill-opacity="0.9"/></svg>`;
+    let src;
 
-    const url = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
-    const size = new kakao.maps.Size(32, 40);
+    if (color === "#2563eb") {
+        src = "https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_blue.png";
+    } else if (color === "#ef4444") {
+        src = "https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png";
+    } else {
+        src = "https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png";
+    }
+
+    const size = new kakao.maps.Size(24, 35);
     const option = {
-        offset: new kakao.maps.Point(16, 40),
+        offset: new kakao.maps.Point(12, 35),
     };
-    return new kakao.maps.MarkerImage(url, size, option);
+    return new kakao.maps.MarkerImage(src, size, option);
 }
 
 function placeInitialMarkersFromInputs() {
@@ -164,7 +169,6 @@ function placeInitialMarkersFromInputs() {
         setEndMarker(endLat, endLng);
     }
 
-    // 둘 다 있으면 화면 bounds 맞추기
     if (startMarker && endMarker) {
         const bounds = new kakao.maps.LatLngBounds();
         bounds.extend(startMarker.getPosition());
@@ -359,17 +363,24 @@ function drawRouteOnMap(data, { startLat, startLng, endLat, endLng }) {
     setEndMarker(endLat, endLng);
 
     const bounds = new kakao.maps.LatLngBounds();
+    let hasBounds = false;
 
     if (segments && segments.length > 0) {
         // 타입별 구간 polyline
-        segments.forEach((seg) => {
+        segments.forEach((seg, idx) => {
             if (!Array.isArray(seg.points) || seg.points.length === 0) {
                 return;
             }
+
             const path = seg.points.map(
                 (p) => new kakao.maps.LatLng(p.lat, p.lng)
             );
-            const color = getSegmentColor(seg.type);
+
+            const rawType = seg.type || seg.segmentType || "";
+            const color = getSegmentColor(rawType);
+
+            // 디버깅 로그
+            console.log("segment", idx, "rawType=", rawType, "color=", color);
 
             const polyline = new kakao.maps.Polyline({
                 map: routeMap,
@@ -381,7 +392,10 @@ function drawRouteOnMap(data, { startLat, startLng, endLat, endLng }) {
             });
 
             routePolylines.push(polyline);
-            path.forEach((latlng) => bounds.extend(latlng));
+            path.forEach((latlng) => {
+                bounds.extend(latlng);
+                hasBounds = true;
+            });
         });
     } else if (points.length > 0) {
         // 백엔드가 아직 segments를 안 내려주는 경우: 기존처럼 단일 빨간 선
@@ -395,13 +409,13 @@ function drawRouteOnMap(data, { startLat, startLng, endLat, endLng }) {
             strokeStyle: "solid",
         });
         routePolylines.push(polyline);
-        path.forEach((latlng) => bounds.extend(latlng));
+        path.forEach((latlng) => {
+            bounds.extend(latlng);
+            hasBounds = true;
+        });
     }
 
-    if (!bounds.isEmpty && typeof bounds.isEmpty === "function") {
-        // Kakao LatLngBounds 에는 isEmpty가 없을 수도 있어서 방어
-        routeMap.setBounds(bounds);
-    } else {
+    if (hasBounds) {
         routeMap.setBounds(bounds);
     }
 
@@ -409,13 +423,37 @@ function drawRouteOnMap(data, { startLat, startLng, endLat, endLng }) {
     renderRouteSummary(summary, steps);
 }
 
+/**
+ * 경로 segment 타입에 따른 색상.
+ *  - BUS / SUBWAY / WALK 문자열뿐 아니라
+ *    혹시 숫자 코드(1,2,3...)가 넘어오는 경우도 함께 커버.
+ */
 function getSegmentColor(type) {
-    if (!type) return "#6b7280"; // gray
-    const upper = String(type).toUpperCase();
-    if (upper === "BUS") return "#10b981"; // green
-    if (upper === "SUBWAY") return "#6366f1"; // indigo/purple
-    if (upper === "WALK") return "#6b7280"; // gray
-    return "#6b7280";
+    const upper = String(type || "").toUpperCase();
+
+    // 버스: BUS 또는 2,3,4,5
+    if (
+        upper === "BUS" ||
+        upper === "2" ||
+        upper === "3" ||
+        upper === "4" ||
+        upper === "5"
+    ) {
+        return "#10b981"; // green
+    }
+
+    // 지하철: SUBWAY 또는 1,6
+    if (upper === "SUBWAY" || upper === "1" || upper === "6") {
+        return "#6366f1"; // indigo
+    }
+
+    // 도보: WALK 또는 9
+    if (upper === "WALK" || upper === "9") {
+        return "#6b7280"; // gray
+    }
+
+    // 정체 모를 타입은 빨간색으로 눈에 띄게
+    return "#ef4444";
 }
 
 function renderRouteSummary(summary, steps) {

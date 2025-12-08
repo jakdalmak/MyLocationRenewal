@@ -18,5 +18,5 @@ public class SpotCreateRequest {
     private String name;
     private Double lat;
     private Double lon;
-    private int locationWidth;
+    private Double locationWidth;
 }

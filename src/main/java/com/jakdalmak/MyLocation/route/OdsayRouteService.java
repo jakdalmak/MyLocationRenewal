@@ -43,7 +43,7 @@ public class OdsayRouteService {
 
     /**
      * ODsay 샘플 코드 스타일의 순수 HttpURLConnection GET.
-     *  👉 통신 방식은 절대 건드리지 않음.
+     * (절대 RestTemplate 등으로 바꾸지 않음)
      */
     private String httpGet(String urlInfo) throws Exception {
         URL url = new URL(urlInfo);
@@ -99,7 +99,7 @@ public class OdsayRouteService {
             );
             log.info("ODsay apiKey encoded='{}'", encodedKey);
 
-            // 1) searchPubTransPathT 호출 (통신 방식 그대로)
+            // 1) searchPubTransPathT 호출
             String searchUrl =
                     SEARCH_URL
                             + "?SX=" + sx
@@ -147,9 +147,8 @@ public class OdsayRouteService {
             int subwayTransitCount = info.path("subwayTransitCount").asInt();
             String mapObj = info.path("mapObj").asText();
 
-            // ---------------------------------------------------------
-            // (1) subPath → steps / transferPoints 파싱
-            // ---------------------------------------------------------
+            /* ================== (1) subPath → steps / transferPoints ================== */
+
             List<RouteTransitStepDto> steps = new ArrayList<>();
             List<LatLngDto> transferPoints = new ArrayList<>();
 
@@ -161,7 +160,7 @@ public class OdsayRouteService {
                     for (JsonNode sp : subPathArray) {
                         int trafficType = sp.path("trafficType").asInt(); // 1:지하철, 2:버스, 3:도보
 
-                        // 도보(3)는 상세 목록에서 제외
+                        // 버스/지하철만 상세 경로에 포함
                         if (trafficType != 1 && trafficType != 2) {
                             continue;
                         }
@@ -192,11 +191,10 @@ public class OdsayRouteService {
                                 sectionTime,
                                 stationCount
                         ));
-
                         transitSubpaths.add(sp);
                     }
 
-                    // 환승 지점:
+                    // ★ 환승 지점:
                     //  - 두 번째 대중교통 subPath부터 각 subPath의 startX/startY 를 환승 지점으로 사용
                     for (int i = 1; i < transitSubpaths.size(); i++) {
                         JsonNode sp = transitSubpaths.get(i);
@@ -207,15 +205,18 @@ public class OdsayRouteService {
                         }
                     }
                 }
+
+                log.info("ODsay steps.size={}, transferPoints.size={}",
+                        steps.size(), transferPoints.size());
+
             } catch (Exception parseEx) {
-                log.warn("ODsay subPath 파싱 중 오류 발생 (steps/transferPoints는 비워둠).", parseEx);
+                log.warn("ODsay subPath 파싱 중 오류 (steps/transferPoints 비움).", parseEx);
                 steps = Collections.emptyList();
                 transferPoints = Collections.emptyList();
             }
 
-            // ---------------------------------------------------------
-            // (2) loadLane → segments / 전체 points 파싱
-            // ---------------------------------------------------------
+            /* ================== (2) loadLane → segments / points ================== */
+
             String mapObjectParam = "0:0@" + mapObj;
             String encodedMapObject = URLEncoder.encode(mapObjectParam, StandardCharsets.UTF_8);
 
@@ -249,8 +250,7 @@ public class OdsayRouteService {
                     int laneType = lane.path("type").asInt(0); // loadLane 문서 기준
                     String segType;
 
-                    // 대중교통 길찾기 기준 타입 매핑
-                    // 1:지하철, 2/3/4/5:버스, 9:도보
+                    // 1:지하철, 2/3/4/5:버스, 9:도보 정도만 구분
                     if (laneType == 1 || laneType == 6) {
                         segType = "SUBWAY";
                     } else if (laneType == 2 || laneType == 3 || laneType == 4 || laneType == 5) {
@@ -284,6 +284,9 @@ public class OdsayRouteService {
                     }
                 }
             }
+
+            log.info("ODsay segments.size={}, allPoints.size={}",
+                    segments.size(), allPoints.size());
 
             RouteSummaryDto summary = new RouteSummaryDto(
                     totalTime,

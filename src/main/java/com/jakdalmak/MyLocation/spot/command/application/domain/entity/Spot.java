@@ -37,7 +37,7 @@ public class Spot {
      * 반경(m) – JS에서 locationWidth 필드로 사용
      */
     @Column(name = "location_width_m", nullable = false)
-    private Integer locationWidth;
+    private Double locationWidth;
 
     @CreationTimestamp
     @Column(updatable = false)
