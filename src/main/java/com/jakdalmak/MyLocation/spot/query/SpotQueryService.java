@@ -1,8 +1,11 @@
 package com.jakdalmak.MyLocation.spot.query;
 
+import com.jakdalmak.MyLocation.spot.command.application.domain.dto.response.SpotReadResponse;
 import com.jakdalmak.MyLocation.spot.command.application.domain.entity.Spot;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -102,5 +105,14 @@ public class SpotQueryService {
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
         return EARTH_RADIUS_M * c;
+    }
+
+    @Transactional(readOnly = true)
+    public List<SpotReadResponse> getAllSpot() {
+        // 최근 생성 순 정렬 (원하면 createdAt으로 바꿔도 됨)
+        return spotRepository.findAll(Sort.by(Sort.Direction.DESC, "id"))
+                .stream()
+                .map(SpotReadResponse::from)
+                .toList();
     }
 }

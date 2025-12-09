@@ -17,11 +17,6 @@ import java.util.List;
 public class SpotCommandController {
     private final SpotCommandService spotCommandService;
 
-//    @GetMapping
-//    public List<Spot> list() {
-//        return spotCommandService.findAll();
-//    }
-
     @PostMapping
     public SpotReadResponse create(@RequestBody SpotCreateRequest req) {
         return spotCommandService.createSpot(req);

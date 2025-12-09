@@ -14,6 +14,11 @@ public class SpotQueryController {
 
     private final SpotQueryService spotQueryService;
 
+    @GetMapping
+    public List<SpotReadResponse> list() {
+        return spotQueryService.getAllSpot();
+    }
+
     /**
      * 지도 중심 좌표 + 반경으로 원 범위 내 스팟 목록 조회
      *

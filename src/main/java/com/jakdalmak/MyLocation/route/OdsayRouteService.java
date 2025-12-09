@@ -246,20 +246,26 @@ public class OdsayRouteService {
             List<RouteSegmentDto> segments = new ArrayList<>();
 
             if (laneArray.isArray()) {
+                int idx = 0;
                 for (JsonNode lane : laneArray) {
-                    int laneType = lane.path("type").asInt(0); // loadLane 문서 기준
-                    String segType;
 
-                    // 1:지하철, 2/3/4/5:버스, 9:도보 정도만 구분
-                    if (laneType == 1 || laneType == 6) {
-                        segType = "SUBWAY";
-                    } else if (laneType == 2 || laneType == 3 || laneType == 4 || laneType == 5) {
+                    // [FIX-1] class 기반으로 BUS / SUBWAY 구분
+                    int laneClass = lane.path("class").asInt(0);  // 1:버스노선, 2:지하철노선
+                    int laneType = lane.path("type").asInt(0);    // 세부 노선종류 코드
+
+                    String segType;
+                    if (laneClass == 1) {
                         segType = "BUS";
-                    } else if (laneType == 9) {
-                        segType = "WALK";
+                    } else if (laneClass == 2) {
+                        segType = "SUBWAY";
                     } else {
                         segType = "OTHER";
                     }
+
+                    // [FIX-2] 디버깅용 로그: 실제 class/type 값과 최종 segType 확인
+                    log.info("ODsay loadLane lane[{}]: class={}, type={} -> segType={}",
+                            idx, laneClass, laneType, segType);
+                    idx++;
 
                     List<LatLngDto> segPoints = new ArrayList<>();
 

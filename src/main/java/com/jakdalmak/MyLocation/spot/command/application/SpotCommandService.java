@@ -26,15 +26,6 @@ public class SpotCommandService {
 
     private final SpotCommandRepository spotRepository;
 
-    @Transactional(readOnly = true)
-    public List<SpotReadResponse> getAllSpot() {
-        // 최근 생성 순 정렬 (원하면 createdAt으로 바꿔도 됨)
-        return spotRepository.findAll(Sort.by(Sort.Direction.DESC, "id"))
-                .stream()
-                .map(SpotReadResponse::from)
-                .toList();
-    }
-
     @Transactional
     public SpotReadResponse createSpot(SpotCreateRequest request) {
         Spot spot = Spot.builder()
@@ -81,16 +72,7 @@ public class SpotCommandService {
      * 해당 사용자에 대한 핀 - 사용자 다대다 관계 구축하여 핀 개수 낭비 자제
      * */
     private Optional<Spot> isAlreadyCreatedSpotByLatAndLot(double lat, double lot) {
-        Optional<Spot> targetSpot = spotRepository.findByLatAndLon(lat, lot);
-
-        for(Spot spot : alreadyCreatedSpotList) {
-            if(spot.getType() == SpotType.GOVERNMENT) {
-                targetSpot = Optional.of(spot);
-                break;
-            }
-        }
-
-        return targetSpot;
+        return spotRepository.findByLatAndLon(lat, lot);
     }
 
 }

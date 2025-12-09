@@ -5,6 +5,7 @@ import com.jakdalmak.MyLocation.spot.command.application.domain.entity.Spot;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -15,4 +16,5 @@ public interface SpotCommandRepository extends JpaRepository<Spot, Long> {
 
     Optional<Spot> findByLatAndLon(Double lat, Double lon);
 
+    List<Spot> findAllByAddress(String address);
 }

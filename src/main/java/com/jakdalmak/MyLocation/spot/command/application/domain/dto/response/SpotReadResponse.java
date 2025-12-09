@@ -1,5 +1,6 @@
 package com.jakdalmak.MyLocation.spot.command.application.domain.dto.response;
 
+import com.jakdalmak.MyLocation.spot.command.application.domain.SpotType;
 import com.jakdalmak.MyLocation.spot.command.application.domain.entity.Spot;
 import lombok.*;
 
@@ -17,6 +18,7 @@ public class SpotReadResponse {
     private Double lon;
     private Double locationWidth;
     private LocalDateTime createdAt;
+    private SpotType type;
 
     public static SpotReadResponse from(Spot spot) {
         return SpotReadResponse.builder()
@@ -26,6 +28,7 @@ public class SpotReadResponse {
                 .lon(spot.getLon())
                 .locationWidth(spot.getLocationWidth())
                 .createdAt(spot.getCreatedAt())
+                .type(spot.getType())
                 .build();
     }
 }
