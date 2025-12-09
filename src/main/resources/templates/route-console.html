@@ -1,4 +1,3 @@
-<!-- src/main/resources/templates/console/route-console.html -->
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org" lang="ko">
 <head>
@@ -134,14 +133,14 @@
         }
 
         .marker-dot--start {
-            background: #2563eb; /* 출발: 파랑 */
+            background: #2563eb;
         }
 
         .marker-dot--end {
-            background: #ef4444; /* 도착: 빨강 */
+            background: #ef4444;
         }
 
-        /* 우측 컬럼: 지도 + 스팟 목록 */
+        /* 우측 컬럼 */
         .map-column {
             display: flex;
             flex-direction: column;
@@ -220,7 +219,7 @@
             background: #f9fafb;
         }
 
-        /* 상세 경로 토글 */
+        /* 상세 경로 */
         .route-steps {
             margin-top: 6px;
         }
@@ -237,6 +236,7 @@
             font-size: 12px;
         }
 
+        /* step 태그 */
         .route-step-tag {
             display: inline-block;
             padding: 1px 4px;
@@ -247,12 +247,17 @@
         }
 
         .route-step-tag.bus {
-            background: #10b981; /* 버스: 초록 */
+            background: #10b981; /* 초록 */
         }
 
         .route-step-tag.subway {
-            background: #6366f1; /* 지하철: 보라/남색 */
+            background: #6366f1; /* 남색 */
         }
+
+        .route-step-tag.walk {
+            background: #6b7280; /* 회색 WALK */
+        }
+
     </style>
 </head>
 <body>
@@ -265,7 +270,7 @@
     </header>
 
     <div class="content">
-        <!-- 좌측 패널: 입력 / 결과 -->
+        <!-- 좌측 패널 -->
         <section class="panel">
             <h2>출발 / 도착 좌표 입력</h2>
 
@@ -290,9 +295,7 @@
             </div>
             <div class="form-row">
                 <label></label>
-                <button type="button"
-                        id="btn-start-pin-mode"
-                        class="pin-toggle-btn btn-small">
+                <button id="btn-start-pin-mode" class="pin-toggle-btn btn-small">
                     출발 핀 위치 변경
                 </button>
             </div>
@@ -313,39 +316,31 @@
             </div>
             <div class="form-row">
                 <label></label>
-                <button type="button"
-                        id="btn-end-pin-mode"
-                        class="pin-toggle-btn btn-small">
+                <button id="btn-end-pin-mode" class="pin-toggle-btn btn-small">
                     도착 핀 위치 변경
                 </button>
             </div>
 
             <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">
-                <button type="button" id="btn-set-seoul-gimpo">
-                    서울역 ↔ 김포공항 좌표 세팅
-                </button>
-                <button type="button" id="btn-search-route">
-                    대중교통 경로 조회
-                </button>
+                <button id="btn-set-seoul-gimpo">서울역 ↔ 김포공항 좌표 세팅</button>
+                <button id="btn-search-route">대중교통 경로 조회</button>
             </div>
 
             <div class="small-note">
-                * input 값은 그대로 ODsay <code>SX,SY,EX,EY</code>로 전달됨.<br/>
-                * API 결과 중 0번 경로를 대표 경로로 사용(추후 3개 경로까지 확장 예정).
+                * input 값은 그대로 ODsay SX,SY,EX,EY로 전달됨.<br/>
+                * API 결과 중 최대 3개 경로까지 렌더링됨.
             </div>
 
             <div id="route-summary"></div>
 
             <div style="margin-top:6px;">
-                <button type="button"
-                        id="btn-toggle-transfers"
-                        class="btn-small">
+                <button id="btn-toggle-transfers" class="btn-small">
                     환승 핀 표시하기
                 </button>
             </div>
         </section>
 
-        <!-- 우측: 지도 + 스팟 패널 -->
+        <!-- 우측 지도 -->
         <section class="map-column">
             <div class="map-wrapper">
                 <div id="map"></div>
@@ -354,11 +349,10 @@
             <section class="panel spot-panel">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <h2>저장된 스팟 목록</h2>
-                    <span class="spot-badge">미리보기 UI (DB 연동 예정)</span>
+                    <span class="spot-badge">미리보기 UI</span>
                 </div>
                 <small>
-                    Spot 콘솔에서 등록한 스팟을 기반으로, 추후 출발/도착 스팟 선택 기능을 붙일 예정입니다.
-                    현재는 목록·위치·정보창 표시까지만 동작합니다.
+                    Spot 콘솔에서 등록한 스팟 기반. 출발/도착 스팟 기능 연동 예정.
                 </small>
 
                 <div class="spot-table-wrapper">
@@ -367,25 +361,24 @@
                         <tr>
                             <th>ID</th>
                             <th>이름</th>
-                            <th>lat</th>
-                            <th>lon</th>
+                            <th>Lat</th>
+                            <th>Lon</th>
                             <th>반경</th>
                         </tr>
                         </thead>
-                        <tbody id="route-spot-table-body">
-                        <!-- JS로 채워짐 -->
-                        </tbody>
+                        <tbody id="route-spot-table-body"></tbody>
                     </table>
                 </div>
+
                 <div id="route-spot-empty" class="spot-empty" style="display:none;">
-                    아직 불러온 스팟이 없습니다. (API 준비 전이거나, 등록된 스팟이 없을 수 있습니다.)
+                    아직 불러온 스팟이 없습니다.
                 </div>
             </section>
         </section>
     </div>
 </div>
 
-<!-- route 전용 JS -->
+<!-- route JS -->
 <script th:src="@{/js/route-console.js}"></script>
 
 <!-- Kakao Map SDK -->

@@ -15,7 +15,7 @@ public class SpotQueryController {
     private final SpotQueryService spotQueryService;
 
     @GetMapping
-    public List<SpotReadResponse> list() {
+    public List<SpotReadResponse> list(@RequestParam(value = "spotType", required = false)) {
         return spotQueryService.getAllSpot();
     }
 

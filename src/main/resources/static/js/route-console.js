@@ -1,4 +1,6 @@
-// src/main/resources/static/js/route-console.js
+// ============================
+// route-console.js (전체 전문)
+// ============================
 
 let routeMap;
 
@@ -11,8 +13,13 @@ let startMarkerImage = null;
 let endMarkerImage = null;
 let transferMarkerImage = null;
 
-// 경로 polyline 들 (버스/지하철/도보/기타 구간별)
+// 경로 polyline 들
 let routePolylines = [];
+let routePolylineGroups = [];
+
+// 서버에서 내려온 경로 후보들
+let routeCandidates = [];
+let activeRouteIndex = 0;
 
 // 환승 마커
 let transferMarkers = [];
@@ -37,7 +44,7 @@ function initRouteConsole() {
         return;
     }
 
-    // 초기 center는 대충 서울 한가운데
+    // 초기 center는 대충 서울 중심
     const center = new kakao.maps.LatLng(37.56, 126.97);
 
     routeMap = new kakao.maps.Map(mapContainer, {
@@ -45,34 +52,27 @@ function initRouteConsole() {
         level: 8,
     });
 
-    // 지오코더 / 인포윈도우
     if (kakao.maps.services && kakao.maps.services.Geocoder) {
         routeGeocoder = new kakao.maps.services.Geocoder();
     }
     routeInfoWindow = new kakao.maps.InfoWindow({ zIndex: 3 });
 
-    // 출발/도착/환승용 마커 이미지 생성 (SVG 물방울)
-    startMarkerImage = createPinMarkerImage("#2563eb");    // 파랑: 출발
-    endMarkerImage = createPinMarkerImage("#ef4444");      // 빨강: 도착
-    transferMarkerImage = createPinMarkerImage("#a855f7"); // 보라: 환승
+    // SVG 마커 이미지 생성
+    startMarkerImage = createPinMarkerImage("#2563eb"); // 파랑
+    endMarkerImage = createPinMarkerImage("#ef4444");   // 빨강
+    transferMarkerImage = createPinMarkerImage("#a855f7"); // 보라
 
-    // 버튼 이벤트
-    const btnSeoulGimpo = document.getElementById("btn-set-seoul-gimpo");
-    if (btnSeoulGimpo) {
-        btnSeoulGimpo.addEventListener("click", () => {
+    document.getElementById("btn-set-seoul-gimpo")
+        .addEventListener("click", () => {
             fillSeoulGimpo();
             clearRouteVisualization();
         });
-    }
 
-    const btnSearchRoute = document.getElementById("btn-search-route");
-    if (btnSearchRoute) {
-        btnSearchRoute.addEventListener("click", () => {
-            // 경로 조회 시에는 핀 위치 변경 모드 해제
+    document.getElementById("btn-search-route")
+        .addEventListener("click", () => {
             setActivePinMode(null);
             requestRouteFromServer();
         });
-    }
 
     const btnStartPinMode = document.getElementById("btn-start-pin-mode");
     const btnEndPinMode = document.getElementById("btn-end-pin-mode");
@@ -94,7 +94,6 @@ function initRouteConsole() {
         });
     }
 
-    // 지도 클릭 시: 활성화된 핀 모드에 따라 출발/도착 핀 이동
     kakao.maps.event.addListener(routeMap, "click", function (mouseEvent) {
         if (!activePinMode) return;
 
@@ -112,22 +111,15 @@ function initRouteConsole() {
             setEndMarker(lat, lng);
         }
 
-        // 좌표가 변경되었으니 기존 경로/요약/환승핀 초기화
         clearRouteVisualization();
-
-        // 지도 한 번 클릭하면 핀 변경 모드 해제
         setActivePinMode(null);
     });
 
-    // 페이지 진입 시 기본값(th:value) 기준으로 핀 생성
     placeInitialMarkersFromInputs();
-
-    // Spot 콘솔과 공유할 스팟 목록 UI 미리 구성
     loadRouteSpots();
 
-    // 리사이즈 시 지도 재배치
     window.addEventListener("resize", function () {
-        setTimeout(function () {
+        setTimeout(() => {
             routeMap.relayout();
         }, 100);
     });
@@ -135,24 +127,22 @@ function initRouteConsole() {
 
 /* ===================== 마커/모드 유틸 ===================== */
 
-/**
- * SVG 물방울 모양 마커 이미지 생성
- * - color: 핀 내부 색상 (출발/도착/환승 각각 다른 색)
- */
 function createPinMarkerImage(color) {
     const svg =
         `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">` +
         `<defs><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">` +
-        `<feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000" flood-opacity="0.25"/></filter></defs>` +
+        `<feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000" flood-opacity="0.25"/>` +
+        `</filter></defs>` +
         `<path filter="url(#shadow)" d="M16 2C9.9 2 5 7 5 13.1c0 6.9 7 14.4 10.1 17.2a1.3 1.3 0 0 0 1.8 0C20 27.5 27 20 27 13.1 27 7 22.1 2 16 2z" fill="${color}" stroke="#ffffff" stroke-width="2"/>` +
-        `<circle cx="16" cy="14" r="4.5" fill="#ffffff" fill-opacity="0.9"/></svg>`;
+        `<circle cx="16" cy="14" r="4.5" fill="#ffffff" fill-opacity="0.9"/>` +
+        `</svg>`;
 
     const url = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
-    const size = new kakao.maps.Size(32, 40);
-    const option = {
-        offset: new kakao.maps.Point(16, 40),
-    };
-    return new kakao.maps.MarkerImage(url, size, option);
+    return new kakao.maps.MarkerImage(
+        url,
+        new kakao.maps.Size(32, 40),
+        { offset: new kakao.maps.Point(16, 40) }
+    );
 }
 
 function placeInitialMarkersFromInputs() {
@@ -168,6 +158,7 @@ function placeInitialMarkersFromInputs() {
         setEndMarker(endLat, endLng);
     }
 
+    // 두 마커가 모두 존재하면 지도 bounds 맞추기
     if (startMarker && endMarker) {
         const bounds = new kakao.maps.LatLngBounds();
         bounds.extend(startMarker.getPosition());
@@ -179,9 +170,11 @@ function placeInitialMarkersFromInputs() {
 function setStartMarker(lat, lng) {
     const pos = new kakao.maps.LatLng(lat, lng);
     if (!startMarker) {
-        const options = { map: routeMap, position: pos };
-        if (startMarkerImage) options.image = startMarkerImage;
-        startMarker = new kakao.maps.Marker(options);
+        startMarker = new kakao.maps.Marker({
+            map: routeMap,
+            position: pos,
+            image: startMarkerImage,
+        });
     } else {
         startMarker.setPosition(pos);
         startMarker.setMap(routeMap);
@@ -191,9 +184,11 @@ function setStartMarker(lat, lng) {
 function setEndMarker(lat, lng) {
     const pos = new kakao.maps.LatLng(lat, lng);
     if (!endMarker) {
-        const options = { map: routeMap, position: pos };
-        if (endMarkerImage) options.image = endMarkerImage;
-        endMarker = new kakao.maps.Marker(options);
+        endMarker = new kakao.maps.Marker({
+            map: routeMap,
+            position: pos,
+            image: endMarkerImage,
+        });
     } else {
         endMarker.setPosition(pos);
         endMarker.setMap(routeMap);
@@ -202,15 +197,12 @@ function setEndMarker(lat, lng) {
 
 function setActivePinMode(mode) {
     activePinMode = mode;
+
     const startBtn = document.getElementById("btn-start-pin-mode");
     const endBtn = document.getElementById("btn-end-pin-mode");
 
-    if (startBtn) {
-        startBtn.classList.toggle("pin-toggle-btn--active", mode === "start");
-    }
-    if (endBtn) {
-        endBtn.classList.toggle("pin-toggle-btn--active", mode === "end");
-    }
+    if (startBtn) startBtn.classList.toggle("pin-toggle-btn--active", mode === "start");
+    if (endBtn) endBtn.classList.toggle("pin-toggle-btn--active", mode === "end");
 }
 
 /* ===================== 경로 초기화/환승 토글 ===================== */
@@ -218,6 +210,8 @@ function setActivePinMode(mode) {
 function clearRoutePolylines() {
     routePolylines.forEach((pl) => pl.setMap(null));
     routePolylines = [];
+    routePolylineGroups = [];
+    routeCandidates = [];
 }
 
 function clearTransferMarkers() {
@@ -235,9 +229,7 @@ function clearRouteVisualization() {
     if (summaryDiv) summaryDiv.innerHTML = "";
 
     const btnToggleTransfers = document.getElementById("btn-toggle-transfers");
-    if (btnToggleTransfers) {
-        btnToggleTransfers.textContent = "환승 핀 표시하기";
-    }
+    if (btnToggleTransfers) btnToggleTransfers.textContent = "환승 핀 표시하기";
 }
 
 function toggleTransferMarkers() {
@@ -245,13 +237,11 @@ function toggleTransferMarkers() {
     if (!btn) return;
 
     if (!lastRouteTransfers || lastRouteTransfers.length === 0) {
-        console.warn("[route] toggleTransferMarkers - no transferPoints", lastRouteTransfers);
-        alert("표시할 환승 지점이 없습니다.\n먼저 대중교통 경로를 조회하거나, 환승이 있는 경로인지 확인해주세요.");
+        alert("표시할 환승 지점이 없습니다.");
         return;
     }
 
     if (!transfersVisible) {
-        console.log("[route] show transfer markers:", lastRouteTransfers);
         showTransferMarkers();
         transfersVisible = true;
         btn.textContent = "환승 핀 숨기기";
@@ -266,13 +256,10 @@ function showTransferMarkers() {
     clearTransferMarkers();
     if (!transferMarkerImage) return;
 
-    lastRouteTransfers.forEach((tp, idx) => {
+    lastRouteTransfers.forEach((tp) => {
         const lat = Number(tp.lat);
         const lng = Number(tp.lng);
-        if (Number.isNaN(lat) || Number.isNaN(lng)) {
-            console.warn("[route] transferPoint NaN at index", idx, tp);
-            return;
-        }
+        if (Number.isNaN(lat) || Number.isNaN(lng)) return;
 
         const pos = new kakao.maps.LatLng(lat, lng);
         const marker = new kakao.maps.Marker({
@@ -287,7 +274,6 @@ function showTransferMarkers() {
 /* ===================== 기본 좌표 세팅 ===================== */
 
 function fillSeoulGimpo() {
-    // 서울역(공항철도) ↔ 김포공항역 예제
     const startLat = 37.553441;
     const startLng = 126.9696769;
     const endLat = 37.56306;
@@ -325,7 +311,6 @@ async function requestRouteFromServer() {
         return;
     }
 
-    // ODsay는 SX=경도, SY=위도, EX=경도, EY=위도
     const params = new URLSearchParams({
         sx: startLng,
         sy: startLat,
@@ -336,400 +321,367 @@ async function requestRouteFromServer() {
     try {
         const res = await fetch(`/api/console/route/pubtrans?` + params.toString());
         if (!res.ok) {
-            const text = await res.text();
-            console.error("route error:", text);
-            alert("경로 조회 실패: " + res.status);
+            const msg = await res.text();
+            console.error(msg);
+            alert("경로 조회 실패");
             return;
         }
+
         const data = await res.json();
         console.log("[route] server response:", data);
         drawRouteOnMap(data, { startLat, startLng, endLat, endLng });
-    } catch (e) {
-        console.error(e);
+
+    } catch (err) {
+        console.error(err);
         alert("경로 조회 중 오류가 발생했습니다.");
     }
 }
 
-// data: RoutePolylineResponse 확장 버전
-function drawRouteOnMap(data, { startLat, startLng, endLat, endLng }) {
-    const summary = data.summary || null;
-    const segments = Array.isArray(data.segments) ? data.segments : null;
-    const points = Array.isArray(data.points) ? data.points : [];
-    const steps = Array.isArray(data.steps) ? data.steps : [];
+/* ===================== 지도에 경로 표시 ===================== */
 
-    // 1) 기존 경로/요약/환승핀 초기화
+function drawRouteOnMap(data, { startLat, startLng, endLat, endLng }) {
     clearRouteVisualization();
 
-    // 2) 새 경로 기준 환승 지점 저장
-    lastRouteTransfers = Array.isArray(data.transferPoints)
-        ? data.transferPoints
-        : [];
-
-    console.log("[route] drawRouteOnMap summary=", summary);
-    console.log("[route] drawRouteOnMap segments.length=", segments ? segments.length : 0);
-    console.log("[route] drawRouteOnMap steps.length=", steps.length);
-    console.log("[route] drawRouteOnMap transferPoints.length=", lastRouteTransfers.length);
-
-    // 출발/도착 마커는 새 경로 기준으로 다시 세팅
     setStartMarker(startLat, startLng);
     setEndMarker(endLat, endLng);
+
+    let routes = [];
+    if (Array.isArray(data.routes) && data.routes.length > 0) {
+        routes = data.routes;
+    } else if (data.summary || data.points || data.segments) {
+        routes = [data];
+    } else {
+        alert("서버에서 받은 데이터 없음.");
+        return;
+    }
+
+    routeCandidates = routes;
+    routePolylineGroups = [];
+    routePolylines = [];
+    activeRouteIndex = 0;
 
     const bounds = new kakao.maps.LatLngBounds();
     let hasBounds = false;
 
-    if (segments && segments.length > 0) {
-        // 타입별 구간 polyline
-        segments.forEach((seg, idx) => {
-            if (!Array.isArray(seg.points) || seg.points.length === 0) {
-                console.warn("[route] segment has no points, index=", idx, seg);
-                return;
-            }
+    routes.forEach((route, routeIdx) => {
+        const segs = Array.isArray(route.segments) ? route.segments : null;
+        const points = Array.isArray(route.points) ? route.points : [];
+        const group = [];
 
-            const path = seg.points.map(
-                (p) => new kakao.maps.LatLng(p.lat, p.lng)
-            );
+        if (segs && segs.length > 0) {
+            segs.forEach((seg, idx) => {
+                if (!Array.isArray(seg.points) || seg.points.length === 0) return;
 
-            const rawType = seg.type || seg.segmentType || seg.laneType || "";
-            const color = getSegmentColor(rawType);
+                const path = seg.points.map(p => new kakao.maps.LatLng(p.lat, p.lng));
 
-            console.log(
-                `[route] segment #${idx} rawType=`,
-                rawType,
-                "points=",
-                seg.points.length,
-                "strokeColor=",
-                color
-            );
+                const isActive = (routeIdx === activeRouteIndex);
+                const color = isActive ? getSegmentColor(seg.type) : "#d1d5db";
+                const weight = isActive ? 5 : 3;
+                const opacity = isActive ? 0.9 : 0.5;
+
+                console.log(`[segment] route=${routeIdx}, type=${seg.type}, pts=${seg.points.length}`);
+
+                const polyline = new kakao.maps.Polyline({
+                    map: routeMap,
+                    path: path,
+                    strokeWeight: weight,
+                    strokeColor: color,
+                    strokeOpacity: opacity,
+                    strokeStyle: "solid",
+                });
+
+                group.push({ polyline, type: seg.type });
+                routePolylines.push(polyline);
+
+                path.forEach((pt) => {
+                    bounds.extend(pt);
+                    hasBounds = true;
+                });
+            });
+        } else if (points.length > 0) {
+            const path = points.map(p => new kakao.maps.LatLng(p.lat, p.lng));
+            const isActive = (routeIdx === activeRouteIndex);
+            const color = isActive ? "#ef4444" : "#d1d5db";
 
             const polyline = new kakao.maps.Polyline({
                 map: routeMap,
                 path: path,
                 strokeWeight: 5,
                 strokeColor: color,
-                strokeOpacity: 0.9,
-                strokeStyle: "solid",
+                strokeOpacity: 0.8,
             });
 
+            group.push({ polyline, type: "LINE" });
             routePolylines.push(polyline);
-            path.forEach((latlng) => {
-                bounds.extend(latlng);
-                hasBounds = true;
-            });
-        });
-    } else if (points.length > 0) {
-        // 백엔드가 아직 segments를 안 내려주는 경우: 기존처럼 단일 빨간 선
-        console.log("[route] segments 비어 있음 → 단일 빨간 선 사용");
-        const path = points.map((p) => new kakao.maps.LatLng(p.lat, p.lng));
-        const polyline = new kakao.maps.Polyline({
-            map: routeMap,
-            path: path,
-            strokeWeight: 5,
-            strokeColor: "#ff0000",
-            strokeOpacity: 0.8,
-            strokeStyle: "solid",
-        });
-        routePolylines.push(polyline);
-        path.forEach((latlng) => {
-            bounds.extend(latlng);
+
+            path.forEach((pt) => bounds.extend(pt));
             hasBounds = true;
-        });
-    }
+        }
+
+        routePolylineGroups.push(group);
+    });
 
     if (hasBounds) {
         routeMap.setBounds(bounds);
     }
 
-    // 요약 + 상세 경로 렌더링
-    renderRouteSummary(summary, steps);
+    const activeRoute = routeCandidates[activeRouteIndex] || {};
+    lastRouteTransfers = Array.isArray(activeRoute.transferPoints)
+        ? activeRoute.transferPoints
+        : [];
+
+    transfersVisible = false;
+
+    const btnToggleTransfers = document.getElementById("btn-toggle-transfers");
+    if (btnToggleTransfers) btnToggleTransfers.textContent = "환승 핀 표시하기";
+
+    renderRouteSummary();
 }
 
-/**
- * 경로 segment 타입에 따른 색상.
- *  - 문자열 타입(BUS, SUBWAY, WALK, OTHER)
- *  - 숫자 코드(1,2,3...) 들어오는 경우도 방어적으로 처리
- */
+/* ===================== segment 색상 ===================== */
+
 function getSegmentColor(type) {
-    if (type === null || type === undefined) {
-        return "#6b7280"; // default gray
-    }
+    const t = String(type || "").toUpperCase();
 
-    const str = String(type).trim();
-    const upper = str.toUpperCase();
+    if (t === "BUS") return "#10b981";       // 초록
+    if (t === "SUBWAY") return "#6366f1";   // 남색
+    if (t === "WALK") return "#6b7280";     // 회색
 
-    // 숫자 코드(혹시라도 들어올 경우)에 대한 방어 처리
-    const asNumber = Number(str);
-    if (!Number.isNaN(asNumber)) {
-        // loadLane 문서 기준 추정:
-        // 2,6 : 지하철 / 1,3,4,5 : 버스 / 9 : 도보
-        if (asNumber === 2 || asNumber === 6) {
-            return "#6366f1"; // SUBWAY - 인디고
-        }
-        if (asNumber === 1 || asNumber === 3 || asNumber === 4 || asNumber === 5) {
-            return "#10b981"; // BUS - 그린
-        }
-        if (asNumber === 9) {
-            return "#6b7280"; // WALK - 회색
-        }
-    }
-
-    // 문자열 타입에 대한 명시적 매핑
-    if (upper === "BUS") {
-        return "#10b981"; // green
-    }
-    if (upper === "SUBWAY") {
-        return "#6366f1"; // indigo
-    }
-    if (upper === "WALK") {
-        return "#6b7280"; // gray
-    }
-    if (upper === "OTHER") {
-        // 정체 모를 타입은 눈에 띄게 주황/빨강 계열
-        return "#f97316"; // orange
-    }
-
-    // 완전히 알 수 없는 타입은 기타(OTHER)와 동일하게 표시
-    console.warn("[route] getSegmentColor - unknown type:", type);
-    return "#f97316";
+    return "#ef4444"; // 기타: 빨강
 }
 
-function renderRouteSummary(summary, steps) {
+/* ===================== UI 렌더링 (요약/상세/탭) ===================== */
+
+function renderRouteSummary() {
     const summaryDiv = document.getElementById("route-summary");
     if (!summaryDiv) return;
 
-    if (!summary) {
+    if (routeCandidates.length === 0) {
         summaryDiv.innerHTML = "";
         return;
     }
 
-    const paymentText =
-        typeof summary.payment === "number"
-            ? summary.payment.toLocaleString()
-            : summary.payment;
+    const activeRoute = routeCandidates[activeRouteIndex];
+    const summary = activeRoute.summary;
+    const steps = Array.isArray(activeRoute.steps) ? activeRoute.steps : [];
 
-    let html =
-        `<hr style="margin:8px 0;">` +
-        `<div><strong>경로 요약</strong></div>` +
-        `<div>총 소요시간: ${summary.totalTime}분</div>` +
-        `<div>총 요금: ${paymentText}원</div>` +
-        `<div>버스 환승: ${summary.busTransitCount}회 / ` +
-        `지하철 환승: ${summary.subwayTransitCount}회</div>`;
+    let html = "";
 
-    if (steps && steps.length > 0) {
-        html += `<details class="route-steps" open>` +
-            `<summary>상세 경로 (버스/지하철 순서)</summary>` +
-            `<ol>`;
-        steps.forEach((step) => {
-            const typeUpper = String(step.type || "").toUpperCase();
-            const isBus = typeUpper === "BUS";
-            const isSubway = typeUpper === "SUBWAY";
-
-            // 혹시라도 도보/기타가 섞여 들어올 경우 대비
-            let tagClass = "subway";
-            let tagLabel = "지하철";
-            if (isBus) {
-                tagClass = "bus";
-                tagLabel = "버스";
-            } else if (!isSubway) {
-                tagClass = "etc";
-                tagLabel = "기타";
-            }
-
-            const lineName = step.lineName || "";
-            const startName = step.startName || "";
-            const endName = step.endName || "";
-            const sectionTime =
-                typeof step.sectionTime === "number" ? step.sectionTime : null;
-            const stationCount =
-                typeof step.stationCount === "number" ? step.stationCount : null;
-
-            let lineInfo = lineName ? ` ${escapeHtml(lineName)}` : "";
-            let extra = [];
-            if (stationCount !== null) extra.push(`${stationCount}정거장`);
-            if (sectionTime !== null) extra.push(`${sectionTime}분`);
-            const extraText = extra.length ? ` (${extra.join(" / ")})` : "";
+    if (routeCandidates.length > 1) {
+        html += `<div style="margin:4px 0 8px; display:flex; flex-wrap:wrap; gap:4px;">`;
+        routeCandidates.forEach((route, idx) => {
+            const s = route.summary;
+            const time = s ? `${s.totalTime}분` : "";
+            const fee = s ? `${s.payment.toLocaleString()}원` : "";
+            const isActive = idx === activeRouteIndex;
+            const style = isActive
+                ? "background:#111827;color:#f9fafb;border-color:#111827;"
+                : "background:#f3f4f6;color:#111827;border-color:#d1d5db;";
 
             html +=
-                `<li>` +
-                `<span class="route-step-tag ${tagClass}">${tagLabel}</span>` +
-                `${escapeHtml(startName)} → ${escapeHtml(endName)}` +
-                `${lineInfo}${extraText}` +
-                `</li>`;
+                `<button type="button" class="route-tab-btn" data-route-idx="${idx}"` +
+                ` style="border-radius:999px;border:1px solid;padding:3px 8px;font-size:11px;cursor:pointer;${style}">` +
+                `경로 ${idx + 1} · ${time}/${fee}</button>`;
+        });
+        html += `</div>`;
+    }
+
+    if (!summary) {
+        summaryDiv.innerHTML = html;
+        return;
+    }
+
+    html += `<hr style="margin:8px 0;">`;
+    html += `<div><strong>경로 요약 (경로 ${activeRouteIndex + 1})</strong></div>`;
+    html += `<div>총 소요시간: ${summary.totalTime}분</div>`;
+    html += `<div>총 요금: ${summary.payment.toLocaleString()}원</div>`;
+    html += `<div>버스 환승: ${summary.busTransitCount}회 / 지하철 환승: ${summary.subwayTransitCount}회</div>`;
+
+    if (steps.length > 0) {
+        html += `<details open class="route-steps"><summary>상세 경로</summary><ol>`;
+        steps.forEach((step) => {
+            const type = step.type.toUpperCase();
+            const tag =
+                type === "BUS" ? "버스" :
+                    type === "SUBWAY" ? "지하철" :
+                        type === "WALK" ? "도보" : "기타";
+
+            let tagClass = "";
+            if (type === "BUS") tagClass = "bus";
+            if (type === "SUBWAY") tagClass = "subway";
+            if (type === "WALK") tagClass = "walk";
+
+            const line = step.lineName ? ` ${step.lineName}` : "";
+            const extra = [];
+            if (step.stationCount > 0) extra.push(`${step.stationCount}정거장`);
+            if (step.sectionTime > 0) extra.push(`${step.sectionTime}분`);
+            const extraText = extra.length ? ` (${extra.join(" / ")})` : "";
+
+            html += `<li><span class="route-step-tag ${tagClass}">${tag}</span>`;
+            html += `${step.startName} → ${step.endName}${line}${extraText}</li>`;
         });
         html += `</ol></details>`;
     }
 
     summaryDiv.innerHTML = html;
+
+    if (routeCandidates.length > 1) {
+        const tabs = summaryDiv.querySelectorAll(".route-tab-btn");
+        tabs.forEach((btn) => {
+            btn.addEventListener("click", () => {
+                const idx = parseInt(btn.getAttribute("data-route-idx"), 10);
+                setActiveRoute(idx);
+            });
+        });
+    }
 }
 
-/* ===================== Spot 목록 UI (미리보기용) ===================== */
+/* ===================== 포커스 경로 변경 ===================== */
+
+function setActiveRoute(index) {
+    if (index < 0 || index >= routeCandidates.length) return;
+
+    activeRouteIndex = index;
+
+    routePolylineGroups.forEach((group, rIdx) => {
+        const isActive = rIdx === activeRouteIndex;
+        group.forEach(({ polyline, type }) => {
+            const color = isActive ? getSegmentColor(type) : "#d1d5db";
+            const weight = isActive ? 5 : 3;
+            const opacity = isActive ? 0.9 : 0.4;
+            polyline.setOptions({
+                strokeColor: color,
+                strokeWeight: weight,
+                strokeOpacity: opacity,
+            });
+        });
+    });
+
+    clearTransferMarkers();
+    const activeRoute = routeCandidates[activeRouteIndex];
+    lastRouteTransfers = Array.isArray(activeRoute.transferPoints)
+        ? activeRoute.transferPoints
+        : [];
+
+    transfersVisible = false;
+
+    const btn = document.getElementById("btn-toggle-transfers");
+    if (btn) btn.textContent = "환승 핀 표시하기";
+
+    renderRouteSummary();
+}
+
+/* ===================== Spot 목록 ===================== */
 
 function loadRouteSpots() {
     const tbody = document.getElementById("route-spot-table-body");
     const emptyMsg = document.getElementById("route-spot-empty");
-    if (!tbody) return;
 
     fetch("/api/console/spots")
-        .then((resp) => {
-            if (!resp.ok) {
-                throw new Error("spot api not ready: " + resp.status);
-            }
-            return resp.json();
-        })
-        .then((spots) => {
+        .then(r => r.json())
+        .then(spots => {
             routeSpots = spots || [];
-            renderRouteSpotTable(routeSpots);
-            renderRouteSpotMarkers(routeSpots);
+            renderRouteSpotTable(spots);
+            renderRouteSpotMarkers(spots);
 
-            if (routeSpots.length === 0) {
-                if (emptyMsg) emptyMsg.style.display = "block";
+            if (spots.length === 0) {
+                emptyMsg.style.display = "block";
             } else {
-                if (emptyMsg) emptyMsg.style.display = "none";
+                emptyMsg.style.display = "none";
             }
         })
-        .catch((err) => {
-            console.log("[route-spot] 스팟 목록을 불러오지 못했습니다.", err);
-            if (tbody) tbody.innerHTML = "";
-            if (emptyMsg) {
-                emptyMsg.style.display = "block";
-                emptyMsg.textContent =
-                    "스팟 API를 아직 사용할 수 없습니다. (서버에서 /api/console/spots 구현 후 동작합니다.)";
-            }
+        .catch(err => {
+            console.error("[spot] error:", err);
+            tbody.innerHTML = "";
+            emptyMsg.style.display = "block";
+            emptyMsg.textContent = "스팟 API 응답 없음.";
         });
 }
 
 function renderRouteSpotTable(spots) {
     const tbody = document.getElementById("route-spot-table-body");
-    if (!tbody) return;
+
     tbody.innerHTML = "";
 
-    if (!spots || spots.length === 0) return;
-
-    spots.forEach((spot) => {
+    spots.forEach((s) => {
         const tr = document.createElement("tr");
-        const latNum = Number(spot.lat);
-        const lonNum = Number(spot.lon);
+        tr.innerHTML =
+            `<td>${s.id}</td>` +
+            `<td>${s.name}</td>` +
+            `<td>${Number(s.lat).toFixed(5)}</td>` +
+            `<td>${Number(s.lon).toFixed(5)}</td>` +
+            `<td>${s.locationWidth}</td>`;
 
-        tr.innerHTML = `
-            <td>${spot.id}</td>
-            <td class="spot-name-cell">${escapeHtml(spot.name)}</td>
-            <td>${latNum.toFixed(5)}</td>
-            <td>${lonNum.toFixed(5)}</td>
-            <td>${spot.locationWidth}</td>
-        `;
-
-        tr.addEventListener("click", function () {
-            focusRouteSpot(spot);
-        });
-
+        tr.addEventListener("click", () => focusRouteSpot(s));
         tbody.appendChild(tr);
     });
 }
 
 function renderRouteSpotMarkers(spots) {
-    routeSpotMarkers.forEach((m) => m.setMap(null));
+    routeSpotMarkers.forEach(m => m.setMap(null));
     routeSpotMarkers = [];
     routeSpotMarkerMap = {};
 
-    if (!spots || spots.length === 0) return;
-
-    spots.forEach((spot) => {
-        const lat = Number(spot.lat);
-        const lon = Number(spot.lon);
-        if (Number.isNaN(lat) || Number.isNaN(lon)) return;
-
-        const latlng = new kakao.maps.LatLng(lat, lon);
-        const marker = new kakao.maps.Marker({
-            map: routeMap,
-            position: latlng,
-        });
-
+    spots.forEach((s) => {
+        const latlng = new kakao.maps.LatLng(Number(s.lat), Number(s.lon));
+        const marker = new kakao.maps.Marker({ map: routeMap, position: latlng });
         routeSpotMarkers.push(marker);
-        routeSpotMarkerMap[spot.id] = marker;
+        routeSpotMarkerMap[s.id] = marker;
 
-        kakao.maps.event.addListener(marker, "click", function () {
-            focusRouteSpot(spot);
-        });
+        kakao.maps.event.addListener(marker, "click", () => focusRouteSpot(s));
     });
 }
 
 function focusRouteSpot(spot) {
-    const lat = Number(spot.lat);
-    const lon = Number(spot.lon);
-    if (Number.isNaN(lat) || Number.isNaN(lon)) return;
-
-    const latlng = new kakao.maps.LatLng(lat, lon);
+    const latlng = new kakao.maps.LatLng(Number(spot.lat), Number(spot.lon));
     routeMap.setCenter(latlng);
-
     openRouteSpotInfo(spot);
 }
 
 function openRouteSpotInfo(spot) {
-    if (!routeInfoWindow) {
-        routeInfoWindow = new kakao.maps.InfoWindow({ zIndex: 3 });
-    }
-
-    const lat = Number(spot.lat);
-    const lon = Number(spot.lon);
-    const latlng = new kakao.maps.LatLng(lat, lon);
-    const marker = routeSpotMarkerMap[spot.id] || null;
-
     let html =
         `<div style="padding:8px 10px;min-width:190px;">` +
-        `<div style="font-weight:600;font-size:13px;margin-bottom:4px;">${escapeHtml(
-            spot.name
-        )}</div>` +
+        `<div style="font-weight:600;font-size:13px;margin-bottom:4px;">${spot.name}</div>` +
         `<div style="font-size:11px;color:#6b7280;margin-bottom:4px;">주소 조회 중...</div>` +
         `<div style="font-size:11px;color:#9ca3af;">반경 ${spot.locationWidth} m</div>` +
         `</div>`;
 
-    routeInfoWindow.setContent(html);
+    const latlng = new kakao.maps.LatLng(Number(spot.lat), Number(spot.lon));
+    const marker = routeSpotMarkerMap[spot.id];
 
-    if (marker) {
-        routeInfoWindow.open(routeMap, marker);
-    } else {
-        routeInfoWindow.setPosition(latlng);
-        routeInfoWindow.open(routeMap);
-    }
+    routeInfoWindow.setContent(html);
+    routeInfoWindow.open(routeMap, marker ?? latlng);
 
     if (!routeGeocoder) return;
 
     routeGeocoder.coord2Address(
-        lon,
-        lat,
-        function (result, status) {
-            if (status === kakao.maps.services.Status.OK && result && result.length > 0) {
-                const addrObj = result[0];
-                const address = addrObj.road_address
-                    ? addrObj.road_address.address_name
-                    : addrObj.address.address_name;
+        spot.lon,
+        spot.lat,
+        (result, status) => {
+            if (status !== kakao.maps.services.Status.OK) return;
 
-                html =
-                    `<div style="padding:8px 10px;min-width:190px;">` +
-                    `<div style="font-weight:600;font-size:13px;margin-bottom:4px;">${escapeHtml(
-                        spot.name
-                    )}</div>` +
-                    `<div style="font-size:11px;color:#111827;margin-bottom:4px;">${escapeHtml(
-                        address
-                    )}</div>` +
-                    `<div style="font-size:11px;color:#9ca3af;">반경 ${spot.locationWidth} m</div>` +
-                    `</div>`;
+            const addrObj = result[0];
+            const addr = addrObj.road_address
+                ? addrObj.road_address.address_name
+                : addrObj.address.address_name;
 
-                routeInfoWindow.setContent(html);
-                if (marker) {
-                    routeInfoWindow.open(routeMap, marker);
-                } else {
-                    routeInfoWindow.setPosition(latlng);
-                    routeInfoWindow.open(routeMap);
-                }
-            }
+            html =
+                `<div style="padding:8px 10px;min-width:190px;">` +
+                `<div style="font-weight:600;font-size:13px;margin-bottom:4px;">${spot.name}</div>` +
+                `<div style="font-size:11px;color:#111827;margin-bottom:4px;">${addr}</div>` +
+                `<div style="font-size:11px;color:#9ca3af;">반경 ${spot.locationWidth} m</div>` +
+                `</div>`;
+
+            routeInfoWindow.setContent(html);
+            routeInfoWindow.open(routeMap, marker ?? latlng);
         }
     );
 }
 
 /* ===================== 공통 유틸 ===================== */
 
-function escapeHtml(str) {
-    return String(str)
+function escapeHtml(s) {
+    return String(s)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")

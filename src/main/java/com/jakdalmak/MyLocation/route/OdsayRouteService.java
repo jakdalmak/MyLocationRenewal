@@ -7,6 +7,7 @@ import com.jakdalmak.MyLocation.route.dto.RoutePolylineResponse;
 import com.jakdalmak.MyLocation.route.dto.RouteSegmentDto;
 import com.jakdalmak.MyLocation.route.dto.RouteSummaryDto;
 import com.jakdalmak.MyLocation.route.dto.RouteTransitStepDto;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,11 +19,18 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * ODsay 대중교통 경로 조회 서비스.
+ * - searchPubTransPathT 로 최대 3개 경로 조회
+ * - 각 경로별로 loadLane 을 다시 호출해 polyline/segment 정보 구성
+ * - WALK(trafficType=3) 반영 + lane.class 기반 BUS/SUBWAY 매핑
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -42,8 +50,7 @@ public class OdsayRouteService {
     }
 
     /**
-     * ODsay 샘플 코드 스타일의 순수 HttpURLConnection GET.
-     * (절대 RestTemplate 등으로 바꾸지 않음)
+     * 공식 샘플 스타일 HttpURLConnection.
      */
     private String httpGet(String urlInfo) throws Exception {
         URL url = new URL(urlInfo);
@@ -54,50 +61,42 @@ public class OdsayRouteService {
         int status = conn.getResponseCode();
         BufferedReader br;
         if (status >= 200 && status < 300) {
-            br = new BufferedReader(
-                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8)
-            );
+            br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
         } else {
-            br = new BufferedReader(
-                    new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8)
-            );
+            br = new BufferedReader(new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8));
         }
 
         StringBuilder sb = new StringBuilder();
         String line;
-        while ((line = br.readLine()) != null) {
-            sb.append(line);
-        }
+        while ((line = br.readLine()) != null) sb.append(line);
         br.close();
         conn.disconnect();
 
         String body = sb.toString();
-        log.info("HTTP GET {} -> status={}, bodyLen={}", urlInfo, status, body.length());
+        log.info("[HTTP GET] {} -> status={}, bodyLen={}", urlInfo, status, body.length());
         return body;
     }
 
-    public RoutePolylineResponse getBestPubTransRoute(
+    /**
+     * 3개 경로까지 조회
+     */
+    public RoutePolylineMultiResponse getBestPubTransRoute(
             double sx, double sy,
             double ex, double ey
     ) {
         try {
-            // 0) apiKey 정리 + 로그
             String apiKey = cleanApiKey();
             if (apiKey == null || apiKey.isEmpty()) {
-                throw new IllegalStateException("ODsay apiKey가 비어 있습니다. (odsay.api-key 확인)");
+                throw new IllegalStateException("ODsay apiKey가 비어 있음.");
             }
 
             String encodedKey = URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
 
-            log.info("ODsay apiKey debug - raw='{}', cleaned='{}', len={}, hex={}",
-                    rawApiKey,
-                    apiKey,
-                    apiKey.length(),
-                    apiKey.chars()
-                            .mapToObj(c -> String.format("%02X", c))
-                            .collect(Collectors.joining(" "))
-            );
-            log.info("ODsay apiKey encoded='{}'", encodedKey);
+            log.info("[apiKey debug] raw='{}'", rawApiKey);
+            log.info("[apiKey clean]='{}'", apiKey);
+            log.info("[apiKey hex]={}", apiKey.chars()
+                    .mapToObj(c -> String.format("%02X", c))
+                    .collect(Collectors.joining(" ")));
 
             // 1) searchPubTransPathT 호출
             String searchUrl =
@@ -109,26 +108,15 @@ public class OdsayRouteService {
                             + "&OPT=0"
                             + "&apiKey=" + encodedKey;
 
-            log.info(">>> ODsay searchUrl: {}", searchUrl);
+            log.info(">>> searchUrl: {}", searchUrl);
 
             String searchJson = httpGet(searchUrl);
             JsonNode root = objectMapper.readTree(searchJson);
 
             if (root.has("error")) {
-                JsonNode errorNode = root.get("error");
-                String code = null;
-                String msg = null;
-
-                if (errorNode.isArray() && errorNode.size() > 0) {
-                    JsonNode e = errorNode.get(0);
-                    code = e.path("code").asText(null);
-                    msg = e.path("message").asText(null);
-                } else if (errorNode.isObject()) {
-                    code = errorNode.path("code").asText(null);
-                    msg = errorNode.path("message").asText(errorNode.path("msg").asText(null));
-                }
-
-                log.error("ODsay error(search): code={}, msg={}, raw={}", code, msg, searchJson);
+                JsonNode err = root.get("error");
+                String msg = err.path("message").asText(err.path("msg").asText("ODsay error"));
+                log.error("ODsay search error: {}", msg);
                 throw new IllegalStateException("ODsay 길찾기 실패: " + msg);
             }
 
@@ -138,182 +126,198 @@ public class OdsayRouteService {
                 throw new IllegalStateException("ODsay 길찾기 결과 없음");
             }
 
-            JsonNode path0 = pathArray.get(0);
-            JsonNode info = path0.path("info");
+            int count = Math.min(3, pathArray.size());
+            List<RoutePolylineResponse> routes = new ArrayList<>();
 
-            int totalTime = info.path("totalTime").asInt();
-            int payment = info.path("payment").asInt();
-            int busTransitCount = info.path("busTransitCount").asInt();
-            int subwayTransitCount = info.path("subwayTransitCount").asInt();
-            String mapObj = info.path("mapObj").asText();
+            for (int i = 0; i < count; i++) {
+                RoutePolylineResponse r = buildSingleRoute(pathArray.get(i), encodedKey);
+                routes.add(r);
+            }
 
-            /* ================== (1) subPath → steps / transferPoints ================== */
+            log.info(">>> 최종 route 개수 = {}", routes.size());
+            return new RoutePolylineMultiResponse(routes);
 
-            List<RouteTransitStepDto> steps = new ArrayList<>();
-            List<LatLngDto> transferPoints = new ArrayList<>();
+        } catch (Exception e) {
+            log.error("[ODsay] 경로 조회 실패", e);
+            throw new RuntimeException("ODsay 경로 조회 오류", e);
+        }
+    }
 
-            try {
-                JsonNode subPathArray = path0.path("subPath");
-                List<JsonNode> transitSubpaths = new ArrayList<>();
+    /**
+     * path[*] 하나에 대해 summary + steps + transferPoints + segments + points 구성
+     */
+    private RoutePolylineResponse buildSingleRoute(JsonNode pathNode, String encodedKey) throws Exception {
 
-                if (subPathArray.isArray()) {
-                    for (JsonNode sp : subPathArray) {
-                        int trafficType = sp.path("trafficType").asInt(); // 1:지하철, 2:버스, 3:도보
+        JsonNode info = pathNode.path("info");
 
-                        // 버스/지하철만 상세 경로에 포함
-                        if (trafficType != 1 && trafficType != 2) {
-                            continue;
-                        }
+        int totalTime = info.path("totalTime").asInt();
+        int payment = info.path("payment").asInt();
+        int busTransitCount = info.path("busTransitCount").asInt();
+        int subwayTransitCount = info.path("subwayTransitCount").asInt();
+        String mapObj = info.path("mapObj").asText();
 
-                        String type = (trafficType == 2) ? "BUS" : "SUBWAY";
+        /* ================================================================
+         * (1) subPath → steps + transferPoints
+         * ================================================================ */
+        List<RouteTransitStepDto> steps = new ArrayList<>();
+        List<LatLngDto> transferPoints = new ArrayList<>();
 
-                        String startName = sp.path("startName").asText("");
-                        String endName = sp.path("endName").asText("");
-                        int sectionTime = sp.path("sectionTime").asInt(0);
-                        int stationCount = sp.path("stationCount").asInt(0);
+        try {
+            JsonNode subPath = pathNode.path("subPath");
+            List<JsonNode> transitOnly = new ArrayList<>();
 
-                        // 노선 이름 (버스: busNo, 지하철: name)
-                        String lineName = "";
-                        JsonNode lanesNode = sp.path("lane");
-                        if (lanesNode.isArray() && lanesNode.size() > 0) {
-                            JsonNode lane0 = lanesNode.get(0);
+            if (subPath.isArray()) {
+                for (JsonNode sp : subPath) {
+                    int trafficType = sp.path("trafficType").asInt();
+                    String typeStr;
+
+                    if (trafficType == 1) typeStr = "SUBWAY";
+                    else if (trafficType == 2) typeStr = "BUS";
+                    else if (trafficType == 3) typeStr = "WALK";
+                    else continue; // 기타는 skip
+
+                    String startName = sp.path("startName").asText("");
+                    String endName = sp.path("endName").asText("");
+                    int sectionTime = sp.path("sectionTime").asInt(0);
+                    int stationCount = sp.path("stationCount").asInt(0);
+
+                    String lineName = "";
+                    if (trafficType == 1 || trafficType == 2) {
+                        JsonNode laneArr = sp.path("lane");
+                        if (laneArr.isArray() && laneArr.size() > 0) {
+                            JsonNode lane0 = laneArr.get(0);
                             lineName = lane0.path("busNo").asText("");
                             if (lineName.isEmpty()) {
                                 lineName = lane0.path("name").asText("");
                             }
                         }
-
-                        steps.add(new RouteTransitStepDto(
-                                type,
-                                lineName,
-                                startName,
-                                endName,
-                                sectionTime,
-                                stationCount
-                        ));
-                        transitSubpaths.add(sp);
                     }
 
-                    // ★ 환승 지점:
-                    //  - 두 번째 대중교통 subPath부터 각 subPath의 startX/startY 를 환승 지점으로 사용
-                    for (int i = 1; i < transitSubpaths.size(); i++) {
-                        JsonNode sp = transitSubpaths.get(i);
-                        double x = sp.path("startX").asDouble(Double.NaN);
-                        double y = sp.path("startY").asDouble(Double.NaN);
-                        if (!Double.isNaN(x) && !Double.isNaN(y)) {
-                            transferPoints.add(new LatLngDto(y, x));
-                        }
+                    steps.add(new RouteTransitStepDto(
+                            typeStr,
+                            lineName,
+                            startName,
+                            endName,
+                            sectionTime,
+                            stationCount
+                    ));
+
+                    if (trafficType == 1 || trafficType == 2) {
+                        transitOnly.add(sp);
                     }
                 }
 
-                log.info("ODsay steps.size={}, transferPoints.size={}",
-                        steps.size(), transferPoints.size());
-
-            } catch (Exception parseEx) {
-                log.warn("ODsay subPath 파싱 중 오류 (steps/transferPoints 비움).", parseEx);
-                steps = Collections.emptyList();
-                transferPoints = Collections.emptyList();
-            }
-
-            /* ================== (2) loadLane → segments / points ================== */
-
-            String mapObjectParam = "0:0@" + mapObj;
-            String encodedMapObject = URLEncoder.encode(mapObjectParam, StandardCharsets.UTF_8);
-
-            String laneUrl =
-                    LOAD_LANE_URL
-                            + "?mapObject=" + encodedMapObject
-                            + "&apiKey=" + encodedKey;
-
-            log.info(">>> ODsay laneUrl: {}", laneUrl);
-
-            String laneJson = httpGet(laneUrl);
-            JsonNode laneRoot = objectMapper.readTree(laneJson);
-
-            if (laneRoot.has("error")) {
-                JsonNode error = laneRoot.get("error");
-                String msg = error.has("msg")
-                        ? error.get("msg").asText()
-                        : error.path("message").asText("ODsay lane error");
-                log.warn("ODsay loadLane error: {}", msg);
-                throw new IllegalStateException("ODsay 노선 그래픽 조회 실패: " + msg);
-            }
-
-            JsonNode laneResult = laneRoot.path("result");
-            JsonNode laneArray = laneResult.path("lane");
-
-            List<LatLngDto> allPoints = new ArrayList<>();
-            List<RouteSegmentDto> segments = new ArrayList<>();
-
-            if (laneArray.isArray()) {
-                int idx = 0;
-                for (JsonNode lane : laneArray) {
-
-                    // [FIX-1] class 기반으로 BUS / SUBWAY 구분
-                    int laneClass = lane.path("class").asInt(0);  // 1:버스노선, 2:지하철노선
-                    int laneType = lane.path("type").asInt(0);    // 세부 노선종류 코드
-
-                    String segType;
-                    if (laneClass == 1) {
-                        segType = "BUS";
-                    } else if (laneClass == 2) {
-                        segType = "SUBWAY";
-                    } else {
-                        segType = "OTHER";
-                    }
-
-                    // [FIX-2] 디버깅용 로그: 실제 class/type 값과 최종 segType 확인
-                    log.info("ODsay loadLane lane[{}]: class={}, type={} -> segType={}",
-                            idx, laneClass, laneType, segType);
-                    idx++;
-
-                    List<LatLngDto> segPoints = new ArrayList<>();
-
-                    JsonNode sections = lane.path("section");
-                    if (!sections.isArray()) continue;
-
-                    for (JsonNode section : sections) {
-                        JsonNode graphPos = section.path("graphPos");
-                        if (!graphPos.isArray()) continue;
-
-                        for (JsonNode pos : graphPos) {
-                            double x = pos.path("x").asDouble(); // 경도
-                            double y = pos.path("y").asDouble(); // 위도
-                            LatLngDto dto = new LatLngDto(y, x);
-                            segPoints.add(dto);
-                            allPoints.add(dto);
-                        }
-                    }
-
-                    if (!segPoints.isEmpty()) {
-                        segments.add(new RouteSegmentDto(segType, segPoints));
+                // 환승 포인트: 두 번째 transit 부터 startX/startY
+                for (int i = 1; i < transitOnly.size(); i++) {
+                    JsonNode sp = transitOnly.get(i);
+                    double x = sp.path("startX").asDouble(Double.NaN);
+                    double y = sp.path("startY").asDouble(Double.NaN);
+                    if (!Double.isNaN(x) && !Double.isNaN(y)) {
+                        transferPoints.add(new LatLngDto(y, x));
                     }
                 }
             }
 
-            log.info("ODsay segments.size={}, allPoints.size={}",
-                    segments.size(), allPoints.size());
+            log.info("[buildRoute] steps={}, transfers={}", steps.size(), transferPoints.size());
 
-            RouteSummaryDto summary = new RouteSummaryDto(
-                    totalTime,
-                    payment,
-                    busTransitCount,
-                    subwayTransitCount
-            );
+        } catch (Exception ex) {
+            log.warn("subPath 파싱 오류", ex);
+            steps = Collections.emptyList();
+            transferPoints = Collections.emptyList();
+        }
 
-            List<LatLngDto> points = allPoints.isEmpty() ? Collections.emptyList() : allPoints;
+        /* ================================================================
+         * (2) loadLane → segments + allPoints
+         * lane.class 기반 매핑으로 OTHER 제거
+         * ================================================================ */
+        String mapObjParam = "0:0@" + mapObj;
+        String encodedMap = URLEncoder.encode(mapObjParam, StandardCharsets.UTF_8);
 
-            return new RoutePolylineResponse(
-                    summary,
-                    points,
-                    steps,
-                    segments,
-                    transferPoints
-            );
+        String laneUrl = LOAD_LANE_URL
+                + "?mapObject=" + encodedMap
+                + "&apiKey=" + encodedKey;
 
-        } catch (Exception e) {
-            log.error("ODsay route fetch failed (HttpURLConnection)", e);
-            throw new RuntimeException("ODsay 경로 조회 중 오류가 발생했습니다.", e);
+        log.info(">>> loadLane URL: {}", laneUrl);
+
+        String laneJson = httpGet(laneUrl);
+        JsonNode laneRoot = objectMapper.readTree(laneJson);
+
+        if (laneRoot.has("error")) {
+            JsonNode err = laneRoot.get("error");
+            String msg = err.path("message").asText(err.path("msg").asText("ODsay error"));
+            log.error("loadLane error: {}", msg);
+            throw new IllegalStateException("loadLane 실패: " + msg);
+        }
+
+        JsonNode laneResult = laneRoot.path("result");
+        JsonNode laneArr = laneResult.path("lane");
+
+        List<LatLngDto> allPoints = new ArrayList<>();
+        List<RouteSegmentDto> segments = new ArrayList<>();
+
+        if (laneArr.isArray()) {
+            for (JsonNode ln : laneArr) {
+
+                // ************* 핵심 수정 부분 *************
+                // lane.class 로 BUS/SUBWAY 판별
+                int laneClass = ln.path("class").asInt(0);
+                String segType;
+
+                if (laneClass == 1) segType = "BUS";
+                else if (laneClass == 2) segType = "SUBWAY";
+                else segType = "WALK"; // 일부 도보 구간은 class 0이거나 graphPos만 존재 → WALK 처리
+
+                List<LatLngDto> segPoints = new ArrayList<>();
+
+                JsonNode sections = ln.path("section");
+                if (!sections.isArray()) continue;
+
+                for (JsonNode sec : sections) {
+                    JsonNode posArr = sec.path("graphPos");
+                    if (!posArr.isArray()) continue;
+
+                    for (JsonNode pos : posArr) {
+                        double x = pos.path("x").asDouble(); // 경도
+                        double y = pos.path("y").asDouble(); // 위도
+                        LatLngDto dto = new LatLngDto(y, x);
+                        segPoints.add(dto);
+                        allPoints.add(dto);
+                    }
+                }
+
+                if (!segPoints.isEmpty()) {
+                    segments.add(new RouteSegmentDto(segType, segPoints));
+                }
+            }
+        }
+
+        log.info("[buildRoute] segments={}, allPoints={}", segments.size(), allPoints.size());
+
+        RouteSummaryDto summary = new RouteSummaryDto(
+                totalTime,
+                payment,
+                busTransitCount,
+                subwayTransitCount
+        );
+
+        return new RoutePolylineResponse(
+                summary,
+                allPoints.isEmpty() ? Collections.emptyList() : allPoints,
+                steps,
+                segments,
+                transferPoints
+        );
+    }
+
+    /* ================================================================
+     * Multi 경로 응답 DTO
+     * ================================================================ */
+    @Getter
+    public static class RoutePolylineMultiResponse {
+        private final List<RoutePolylineResponse> routes;
+
+        public RoutePolylineMultiResponse(List<RoutePolylineResponse> routes) {
+            this.routes = routes;
         }
     }
 }
